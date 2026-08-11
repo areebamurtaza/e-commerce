@@ -5,6 +5,7 @@ import { Product } from '@/types/product';
 import { ProductCard } from '@/components/home/product-card';
 
 interface ProductSectionProps {
+  id?: string;
   title: string;
   products: Product[];
   viewAllHref?: string;
@@ -12,13 +13,17 @@ interface ProductSectionProps {
 }
 
 export function ProductSection({
+  id,
   title,
   products,
   viewAllHref = '/shop',
   showDivider = true,
 }: ProductSectionProps) {
   return (
-    <section className="w-full bg-white py-8 sm:py-16 xl:py-18">
+    <section
+      id={id}
+      className="w-full bg-white py-8 sm:py-16 xl:py-18 scroll-mt-16 lg:scroll-mt-24"
+    >
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px]">
         {/* Section Heading */}
         <h2 className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[38px] sm:leading-[48px] xl:leading-[58px] text-black text-center uppercase tracking-tight mb-8 sm:mb-12 xl:mb-14">
@@ -26,9 +31,9 @@ export function ProductSection({
         </h2>
 
         {/* 
-          Mobile vs Desktop Grid (image_267eb0.png):
-          Mobile (< md): Exactly 2 items loaded in a single 2-column row. Items 3 & 4 are hidden with 'hidden md:block'.
-          Desktop (>= md): All 4 items loaded in a 4-column grid ('grid-cols-4').
+          Mobile vs Desktop Grid:
+          Mobile (< md): Exactly 2 items loaded in a single 2-column row.
+          Desktop (>= md): All items loaded in a 4-column grid.
         */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-5 xl:gap-[20px]">
           {products.map((product, index) => (

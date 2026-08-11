@@ -26,14 +26,10 @@ export function BrandBar() {
   };
 
   return (
-    /* 
-      Brand Bar Mobile Layout (image_2615bb.png):
-      - Mobile (< md): flex-wrap with centered gap-x-8 gap-y-4 wraps into 2 rows:
-        Row 1: VERSACE | ZARA | GUCCI
-        Row 2: PRADA | Calvin Klein
-      - Desktop (>= md): flex-nowrap distributes all 5 logos across a single row.
-    */
-    <section className="w-full bg-black py-6 sm:py-8 lg:py-0 lg:h-[122px] flex items-center justify-center">
+    <section
+      id="brands"
+      className="w-full bg-black py-6 sm:py-8 lg:py-0 lg:h-[122px] flex items-center justify-center scroll-mt-16 lg:scroll-mt-24"
+    >
       <div className="max-w-[1440px] w-full mx-auto px-4 md:px-8 lg:px-[clamp(1.5rem,5vw,6.25rem)]">
         <div className="flex flex-wrap md:flex-nowrap items-center justify-center md:justify-between gap-x-7 sm:gap-x-10 md:gap-x-6 gap-y-4">
           {BRAND_ASSETS.map((brand) => (

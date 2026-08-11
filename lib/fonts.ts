@@ -1,5 +1,4 @@
 import localFont from 'next/font/local';
-import { Montserrat } from 'next/font/google';
 
 export const integralCF = localFont({
   src: [
@@ -11,12 +10,33 @@ export const integralCF = localFont({
   ],
   variable: '--font-integral',
   display: 'swap',
-  fallback: ['Space_Grotesk', 'Montserrat', 'sans-serif'],
+  fallback: ['system-ui', 'sans-serif'],
 });
 
-export const satoshi = Montserrat({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+export const satoshi = localFont({
+  src: [
+    {
+      path: '../public/fonts/Montserrat-Regular.woff2',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/Montserrat-Medium.woff2',
+      weight: '500',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/Montserrat-SemiBold.woff2',
+      weight: '600',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/Montserrat-Bold.woff2',
+      weight: '700',
+      style: 'normal',
+    },
+  ],
   variable: '--font-satoshi',
   display: 'swap',
+  fallback: ['system-ui', 'sans-serif'],
 });

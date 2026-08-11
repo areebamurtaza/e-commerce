@@ -90,7 +90,7 @@ export function HeroSection() {
             </div>
 
           </div>
-
+ 
           {/* Right Column: Hero Couple Photography */}
           <div className="relative lg:absolute lg:right-0 lg:bottom-0 lg:top-0 w-full lg:w-[48%] lg:max-w-[660px] h-[400px] sm:h-[500px] lg:h-full z-0 flex items-end justify-center pointer-events-none mt-2 lg:mt-0">
             <div className="relative w-full h-full">
