@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --font-integral: var(--font-integral), 'Space_Grotesk', 'Montserrat', sans-serif;
+  --font-satoshi: var(--font-satoshi), 'Montserrat', sans-serif;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-satoshi), sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #000000;
+    font-family: var(--font-satoshi), sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+}
+
+.font-integral {
+  font-family: var(--font-integral), sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.font-satoshi {
+  font-family: var(--font-satoshi), sans-serif;
+}
