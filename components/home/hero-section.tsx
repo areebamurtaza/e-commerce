@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -23,8 +22,6 @@ function FourPointStar({ className }: FourPointStarProps) {
 }
 
 export function HeroSection() {
-  const [heroImageError, setHeroImageError] = useState<boolean>(false);
-
   return (
     <section className="relative w-full bg-[#F2F0F1] overflow-hidden pt-8 sm:pt-0 lg:h-[clamp(520px,46vw,663px)] flex items-center">
       <div className="max-w-[1440px] w-full mx-auto px-4 md:px-8 lg:px-[clamp(1.5rem,5vw,6.25rem)] h-full relative">
@@ -97,26 +94,14 @@ export function HeroSection() {
           {/* Right Column: Hero Couple Photography */}
           <div className="relative lg:absolute lg:right-0 lg:bottom-0 lg:top-0 w-full lg:w-[48%] lg:max-w-[660px] h-[400px] sm:h-[500px] lg:h-full z-0 flex items-end justify-center pointer-events-none mt-2 lg:mt-0">
             <div className="relative w-full h-full">
-              {!heroImageError ? (
-                <Image
-                  src="/images/hero.png"
-                  alt="Trendy Fashionable Couple Posing"
-                  fill
-                  priority
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                  className="object-contain object-bottom lg:object-bottom"
-                  onError={() => setHeroImageError(true)}
-                />
-              ) : (
-                <Image
-                  src="/images/hero.jpg"
-                  alt="Trendy Fashionable Couple Posing"
-                  fill
-                  priority
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                  className="object-contain object-bottom lg:object-bottom"
-                />
-              )}
+              <Image
+                src="/images/hero.jpg"
+                alt="Trendy Fashionable Couple Posing"
+                fill
+                priority
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                className="object-contain object-bottom lg:object-bottom"
+              />
             </div>
 
             {/* Top Right Big Star */}
