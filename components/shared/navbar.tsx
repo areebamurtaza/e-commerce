@@ -3,7 +3,17 @@
 import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, ShoppingCart, Menu, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import {
+  Search,
+  ShoppingCart,
+  Menu,
+  X,
+  ChevronDown,
+  ChevronRight,
+  Sun,
+  Moon,
+} from 'lucide-react';
 import { useCartStore } from '@/lib/cart-store';
 
 function UserAccountIcon({ className = 'w-6 h-6' }: { className?: string }) {
@@ -30,7 +40,7 @@ const NAV_CATEGORIES = [
     name: 'Men',
     href: '/shop?gender=men',
     subcategories: [
-      { name: 'T-shirts', href: '/product/1' },
+      { name: 'T-shirts', href: '/shop?category=men&type=t-shirts' },
       { name: 'Shirts', href: '/shop?category=men&type=shirts' },
       { name: 'Jeans', href: '/shop?category=men&type=jeans' },
       { name: 'Shorts', href: '/shop?category=men&type=shorts' },
@@ -59,6 +69,8 @@ const NAV_CATEGORIES = [
 
 export function Navbar() {
   const router = useRouter();
+  const { setTheme, resolvedTheme } = useTheme();
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isShopDropdownOpen, setIsShopDropdownOpen] = useState<boolean>(false);
@@ -68,9 +80,14 @@ export function Navbar() {
 
   const totalCartCount = useCartStore((state) => state.getTotalItemsCount());
 
+  // Prevent SSR hydration mismatch
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  const toggleTheme = () => {
+    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+  };
 
   const handleSearchSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -82,14 +99,15 @@ export function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-white border-b border-black/10">
+    <header className="sticky top-0 z-40 w-full bg-white dark:bg-black border-b border-black/10 dark:border-zinc-800 text-black dark:text-white transition-colors duration-200">
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px] h-[62px] lg:h-[96px] flex items-center justify-between gap-4 lg:gap-10">
+        
         {/* Mobile Menu Button & Brand Logo */}
         <div className="flex items-center gap-4 shrink-0">
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="lg:hidden p-1 text-black hover:opacity-70 transition-opacity focus:outline-none cursor-pointer"
+            className="lg:hidden p-1 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none cursor-pointer"
             aria-label="Toggle navigation menu"
           >
             {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -97,7 +115,7 @@ export function Navbar() {
 
           <Link
             href="/"
-            className="font-integral font-bold text-[25px] sm:text-[32px] lg:text-[36px] leading-[1.0] text-black tracking-tighter uppercase select-none"
+            className="font-integral font-bold text-[25px] sm:text-[32px] lg:text-[36px] leading-[1.0] text-black dark:text-white tracking-tighter uppercase select-none"
           >
             SHOP.CO
           </Link>
@@ -113,7 +131,7 @@ export function Navbar() {
           >
             <Link
               href="/shop"
-              className="font-satoshi font-normal text-[16px] text-black flex items-center gap-1 hover:text-black/70 transition-colors"
+              className="font-satoshi font-normal text-[16px] text-black dark:text-white flex items-center gap-1 hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
             >
               Shop
               <ChevronDown
@@ -125,12 +143,12 @@ export function Navbar() {
             </Link>
 
             {isShopDropdownOpen && (
-              <div className="absolute top-full left-0 w-[540px] bg-white rounded-[16px] shadow-2xl border border-black/10 p-6 grid grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-2 duration-150 z-50">
+              <div className="absolute top-full left-0 w-[540px] bg-white dark:bg-zinc-900 rounded-[16px] shadow-2xl border border-black/10 dark:border-zinc-800 p-6 grid grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-2 duration-150 z-50">
                 {NAV_CATEGORIES.map((cat) => (
                   <div key={cat.name} className="flex flex-col gap-3">
                     <Link
                       href={cat.href}
-                      className="font-satoshi font-bold text-[16px] text-black hover:underline"
+                      className="font-satoshi font-bold text-[16px] text-black dark:text-white hover:underline"
                     >
                       {cat.name}
                     </Link>
@@ -139,7 +157,7 @@ export function Navbar() {
                         <li key={sub.name}>
                           <Link
                             href={sub.href}
-                            className="font-satoshi font-normal text-[14px] text-black/60 hover:text-black transition-colors"
+                            className="font-satoshi font-normal text-[14px] text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
                           >
                             {sub.name}
                           </Link>
@@ -152,26 +170,23 @@ export function Navbar() {
             )}
           </div>
 
-          {/* On Sale: Filters items with discount percentage */}
           <Link
             href="/shop?discount=true"
-            className="font-satoshi font-normal text-[16px] text-black hover:text-black/70 transition-colors"
+            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
           >
             On Sale
           </Link>
 
-          {/* New Arrivals: Navigates to home page New Arrivals section */}
           <Link
             href="/#new-arrivals"
-            className="font-satoshi font-normal text-[16px] text-black hover:text-black/70 transition-colors"
+            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
           >
             New Arrivals
           </Link>
 
-          {/* Brands: Navigates to home page Brand Bar */}
           <Link
             href="/#brands"
-            className="font-satoshi font-normal text-[16px] text-black hover:text-black/70 transition-colors"
+            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
           >
             Brands
           </Link>
@@ -180,11 +195,11 @@ export function Navbar() {
         {/* Desktop Search Bar */}
         <form
           onSubmit={handleSearchSubmit}
-          className="hidden sm:flex flex-1 max-w-[577px] h-[48px] bg-[#F0EEED] rounded-[62px] px-4 items-center gap-3 focus-within:ring-1 focus-within:ring-black/20 transition-all"
+          className="hidden sm:flex flex-1 max-w-[577px] h-[48px] bg-[#F0EEED] dark:bg-zinc-900 border border-transparent dark:border-zinc-800 rounded-[62px] px-4 items-center gap-3 focus-within:ring-1 focus-within:ring-black dark:focus-within:ring-white transition-all"
         >
           <button
             type="submit"
-            className="text-black/40 hover:text-black transition-colors p-0.5 focus:outline-none cursor-pointer"
+            className="text-black/40 dark:text-zinc-500 hover:text-black dark:hover:text-white transition-colors p-0.5 focus:outline-none cursor-pointer"
             aria-label="Submit search"
           >
             <Search size={20} className="shrink-0" />
@@ -194,44 +209,64 @@ export function Navbar() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search for products..."
-            className="w-full bg-transparent font-satoshi font-normal text-[16px] text-black placeholder:text-black/40 focus:outline-none"
+            className="w-full bg-transparent font-satoshi font-normal text-[16px] text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none"
             aria-label="Search products"
           />
         </form>
 
-        {/* User Account & Cart Controls */}
-        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+        {/* Action Controls: Search (Mobile), Theme Toggle, Cart, Account */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          
           {/* Mobile Search Toggle Button */}
           <button
             type="button"
             onClick={() => setIsSearchOpen(!isSearchOpen)}
-            className="sm:hidden p-1 text-black hover:opacity-70 transition-opacity focus:outline-none cursor-pointer"
+            className="sm:hidden p-1.5 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none cursor-pointer rounded-full"
             aria-label="Toggle search input"
           >
             <Search size={22} />
           </button>
 
-          {/* Cart Icon with Dynamic Counter Badge */}
+          {/* Theme Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label="Toggle color theme"
+            title="Toggle theme"
+            className="p-1.5 text-black dark:text-white hover:bg-black/5 dark:hover:bg-zinc-800 rounded-full transition-colors focus:outline-none cursor-pointer"
+          >
+            {isMounted ? (
+              resolvedTheme === 'dark' ? (
+                <Sun className="w-[20px] h-[20px] sm:w-[22px] sm:h-[22px] text-amber-400 animate-in spin-in-90 duration-200" />
+              ) : (
+                <Moon className="w-[20px] h-[20px] sm:w-[22px] sm:h-[22px] text-black animate-in spin-in-90 duration-200" />
+              )
+            ) : (
+              <div className="w-[20px] h-[20px] sm:w-[22px] sm:h-[22px]" />
+            )}
+          </button>
+
+          {/* Shopping Cart Button with Dynamic Badge */}
           <Link
             href="/cart"
-            className="p-1 text-black hover:opacity-70 transition-opacity focus:outline-none relative inline-flex items-center justify-center"
+            className="p-1.5 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none relative inline-flex items-center justify-center rounded-full"
             aria-label={`View Shopping Cart with ${isMounted ? totalCartCount : 0} items`}
           >
-            <ShoppingCart size={22} className="sm:w-6 sm:h-6" />
+            <ShoppingCart className="w-[22px] h-[22px] sm:w-[24px] sm:h-[24px]" />
             {isMounted && totalCartCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-[#FF3333] text-white font-satoshi font-bold text-[10px] sm:text-[11px] w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center border-2 border-white animate-in zoom-in-50 duration-150">
+              <span className="absolute -top-0.5 -right-0.5 bg-[#FF3333] text-white font-satoshi font-bold text-[10px] sm:text-[11px] w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-black animate-in zoom-in-50 duration-150">
                 {totalCartCount > 99 ? '99+' : totalCartCount}
               </span>
             )}
           </Link>
 
-          {/* Account Link */}
+          {/* User Account Link */}
           <Link
             href="/account"
-            className="p-1 text-black hover:opacity-70 transition-opacity focus:outline-none"
+            className="p-1.5 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none rounded-full"
             aria-label="User Account"
           >
-            <UserAccountIcon className="w-[22px] h-[22px] sm:w-6 sm:h-6" />
+            <UserAccountIcon className="w-[22px] h-[22px] sm:w-[24px] sm:h-[24px]" />
           </Link>
         </div>
       </div>
@@ -241,9 +276,9 @@ export function Navbar() {
         <div className="sm:hidden px-4 pb-3 animate-in slide-in-from-top-2 duration-200">
           <form
             onSubmit={handleSearchSubmit}
-            className="w-full h-[44px] bg-[#F0EEED] rounded-[62px] px-4 flex items-center gap-3"
+            className="w-full h-[44px] bg-[#F0EEED] dark:bg-zinc-900 border border-transparent dark:border-zinc-800 rounded-[62px] px-4 flex items-center gap-3"
           >
-            <button type="submit" aria-label="Submit search" className="text-black/40 p-0.5">
+            <button type="submit" aria-label="Submit search" className="text-black/40 dark:text-zinc-500 p-0.5">
               <Search size={18} className="shrink-0" />
             </button>
             <input
@@ -251,7 +286,7 @@ export function Navbar() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search for products..."
-              className="w-full bg-transparent font-satoshi font-normal text-[14px] text-black placeholder:text-black/40 focus:outline-none"
+              className="w-full bg-transparent font-satoshi font-normal text-[14px] text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none"
               autoFocus
               aria-label="Search products mobile"
             />
@@ -261,9 +296,9 @@ export function Navbar() {
 
       {/* Mobile Menu Drawer */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden border-t border-black/10 bg-white px-4 py-6 flex flex-col gap-4 animate-in fade-in duration-200">
+        <div className="lg:hidden border-t border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 py-6 flex flex-col gap-4 animate-in fade-in duration-200">
           <div className="flex flex-col gap-2">
-            <span className="font-satoshi font-semibold text-[18px] text-black">
+            <span className="font-satoshi font-semibold text-[18px] text-black dark:text-white">
               Shop Categories
             </span>
             {NAV_CATEGORIES.map((cat) => (
@@ -275,7 +310,7 @@ export function Navbar() {
                       activeMobileCategory === cat.name ? null : cat.name
                     )
                   }
-                  className="flex items-center justify-between py-2 text-left font-satoshi font-medium text-[16px] text-black/80 cursor-pointer"
+                  className="flex items-center justify-between py-2 text-left font-satoshi font-medium text-[16px] text-black/80 dark:text-zinc-300 cursor-pointer"
                 >
                   <span>{cat.name}</span>
                   <ChevronRight
@@ -292,7 +327,7 @@ export function Navbar() {
                         key={sub.name}
                         href={sub.href}
                         onClick={() => setIsMobileMenuOpen(false)}
-                        className="font-satoshi text-[14px] text-black/60 hover:text-black"
+                        className="font-satoshi text-[14px] text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
                       >
                         {sub.name}
                       </Link>
@@ -306,21 +341,21 @@ export function Navbar() {
           <Link
             href="/shop?discount=true"
             onClick={() => setIsMobileMenuOpen(false)}
-            className="font-satoshi font-medium text-[18px] text-black"
+            className="font-satoshi font-medium text-[18px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
           >
             On Sale
           </Link>
           <Link
             href="/#new-arrivals"
             onClick={() => setIsMobileMenuOpen(false)}
-            className="font-satoshi font-medium text-[18px] text-black"
+            className="font-satoshi font-medium text-[18px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
           >
             New Arrivals
           </Link>
           <Link
             href="/#brands"
             onClick={() => setIsMobileMenuOpen(false)}
-            className="font-satoshi font-medium text-[18px] text-black"
+            className="font-satoshi font-medium text-[18px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
           >
             Brands
           </Link>
