@@ -1,12 +1,24 @@
-import { Product, DetailedProduct, DressStyleItem, Review, FilterParams, ProductSize } from '@/types/product';
+// lib/mock-data.ts
+import {
+  Product,
+  DetailedProduct,
+  ProductColor,
+  ProductSize,
+  Review,
+  DressStyleItem,
+  FilterParams,
+} from '@/types/product';
 
-// Figma Exact Color Swatches Palette
-export const CATALOG_COLORS = [
+// ============================================================================
+// 1. CATALOG SPECIFICATION CONSTANTS
+// ============================================================================
+
+export const CATALOG_COLORS: ProductColor[] = [
   { name: 'Green', hex: '#00C12B' },
   { name: 'Red', hex: '#F50606' },
   { name: 'Yellow', hex: '#F5DD06' },
   { name: 'Orange', hex: '#F57906' },
-  { name: 'Light Blue', hex: '#06CAF5' },
+  { name: 'Cyan', hex: '#06CAF5' },
   { name: 'Blue', hex: '#063AF5' },
   { name: 'Purple', hex: '#7D06F5' },
   { name: 'Pink', hex: '#F506A4' },
@@ -26,434 +38,533 @@ export const CATALOG_SIZES: ProductSize[] = [
   '4X-Large',
 ];
 
-export const ALL_PRODUCTS: Product[] = [
-  {
-    id: '1',
-    slug: 'one-life-graphic-tshirt',
-    title: 'ONE LIFE GRAPHIC T-SHIRT',
-    src: '/images/pd1.png',
-    rating: 4.5,
-    price: 260,
-    originalPrice: 300,
-    discountPercentage: 40,
-    href: '/product/1',
-    category: 'Men',
-    subCategory: 'T-shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[0], CATALOG_COLORS[5], CATALOG_COLORS[9]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 'n1',
-    title: 'T-shirt with Tape Details',
-    src: '/images/n1.png',
-    rating: 4.5,
-    price: 120,
-    href: '/product/n1',
-    category: 'Men',
-    subCategory: 'T-shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[9], CATALOG_COLORS[8], CATALOG_COLORS[5]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 'n2',
-    title: 'Skinny Fit Jeans',
-    src: '/images/n2.png',
-    rating: 3.5,
-    price: 240,
-    originalPrice: 260,
-    discountPercentage: 20,
-    href: '/product/n2',
-    category: 'Men',
-    subCategory: 'Jeans',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[5], CATALOG_COLORS[9]],
-    sizes: ['Medium', 'Large', 'X-Large', 'XX-Large'],
-  },
-  {
-    id: 'n3',
-    title: 'Checkered Shirt',
-    src: '/images/n3.png',
-    rating: 4.5,
-    price: 180,
-    href: '/product/n3',
-    category: 'Men',
-    subCategory: 'Shirts',
-    gender: 'Men',
-    dressStyle: 'Formal',
-    colors: [CATALOG_COLORS[1], CATALOG_COLORS[5]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 'n4',
-    title: 'Sleeve Striped T-shirt',
-    src: '/images/n4.png',
-    rating: 4.5,
-    price: 130,
-    originalPrice: 160,
-    discountPercentage: 30,
-    href: '/product/n4',
-    category: 'Men',
-    subCategory: 'T-shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[8], CATALOG_COLORS[9], CATALOG_COLORS[1]],
-    sizes: ['Small', 'Medium', 'Large'],
-  },
-  {
-    id: 't1',
-    title: 'Vertical Striped Shirt',
-    src: '/images/t1.png',
-    rating: 5.0,
-    price: 212,
-    originalPrice: 232,
-    discountPercentage: 20,
-    href: '/product/t1',
-    category: 'Men',
-    subCategory: 'Shirts',
-    gender: 'Men',
-    dressStyle: 'Formal',
-    colors: [CATALOG_COLORS[4], CATALOG_COLORS[8]],
-    sizes: ['Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 't2',
-    title: 'Courage Graphic T-shirt',
-    src: '/images/t2.png',
-    rating: 4.0,
-    price: 145,
-    href: '/product/t2',
-    category: 'Men',
-    subCategory: 'T-shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[8], CATALOG_COLORS[7], CATALOG_COLORS[9]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 't3',
-    title: 'Loose Fit Bermuda Shorts',
-    src: '/images/t3.png',
-    rating: 3.0,
-    price: 80,
-    href: '/product/t3',
-    category: 'Men',
-    subCategory: 'Shorts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[0], CATALOG_COLORS[9]],
-    sizes: ['Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 't4',
-    title: 'Faded Skinny Jeans',
-    src: '/images/t4.png',
-    rating: 4.5,
-    price: 210,
-    href: '/product/t4',
-    category: 'Men',
-    subCategory: 'Jeans',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[9], CATALOG_COLORS[5]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 'm1',
-    title: 'Polo with Contrast Trims',
-    src: '/images/m1.png',
-    rating: 4.0,
-    price: 212,
-    originalPrice: 242,
-    discountPercentage: 20,
-    href: '/product/m1',
-    category: 'Men',
-    subCategory: 'Shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[4], CATALOG_COLORS[8]],
-    sizes: ['Small', 'Medium', 'Large'],
-  },
-  {
-    id: 'm2',
-    title: 'Gradient Graphic T-shirt',
-    src: '/images/m2.png',
-    rating: 3.5,
-    price: 145,
-    href: '/product/m2',
-    category: 'Men',
-    subCategory: 'T-shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[8], CATALOG_COLORS[7]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 'm3',
-    title: 'Polo with Tipping Details',
-    src: '/images/m3.png',
-    rating: 4.5,
-    price: 180,
-    href: '/product/m3',
-    category: 'Men',
-    subCategory: 'Shirts',
-    gender: 'Men',
-    dressStyle: 'Formal',
-    colors: [CATALOG_COLORS[1], CATALOG_COLORS[5]],
-    sizes: ['Medium', 'Large', 'X-Large'],
-  },
-  {
-    id: 'm4',
-    title: 'Black Striped T-shirt',
-    src: '/images/m4.png',
-    rating: 5.0,
-    price: 120,
-    originalPrice: 150,
-    discountPercentage: 30,
-    href: '/product/m4',
-    category: 'Men',
-    subCategory: 'T-shirts',
-    gender: 'Men',
-    dressStyle: 'Casual',
-    colors: [CATALOG_COLORS[9], CATALOG_COLORS[8]],
-    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
-  },
-];
+// ============================================================================
+// 2. REVIEWS DATA
+// ============================================================================
 
-export const NEW_ARRIVALS: Product[] = ALL_PRODUCTS.filter((p) =>
-  ['n1', 'n2', 'n3', 'n4'].includes(p.id)
-);
-
-export const TOP_SELLING: Product[] = ALL_PRODUCTS.filter((p) =>
-  ['t1', 't2', 't3', 't4'].includes(p.id)
-);
-
-export const DRESS_STYLES_ROW_1: DressStyleItem[] = [
+export const MOCK_REVIEWS: Review[] = [
   {
-    id: 'casual',
-    title: 'Casual',
-    src: '/images/casual.png',
-    href: '/shop?style=Casual',
-    mobileObjectPosition: 'object-[75%_25%]',
-    styleConfig: {
-      width: '239.06%',
-      height: '224.57%',
-      left: '-85.26%',
-      top: '-42.21%',
-      transform: 'scaleX(-1)',
-    },
-  },
-  {
-    id: 'formal',
-    title: 'Formal',
-    src: '/images/formal.png',
-    href: '/shop?style=Formal',
-    mobileObjectPosition: 'object-[center_top]',
-    styleConfig: {
-      width: '190.93%',
-      height: '301.03%',
-      left: '0%',
-      top: '-50.52%',
-    },
-  },
-];
-
-export const DRESS_STYLES_ROW_2: DressStyleItem[] = [
-  {
-    id: 'party',
-    title: 'Party',
-    src: '/images/party.png',
-    href: '/shop?style=Party',
-    mobileObjectPosition: 'object-[60%_20%]',
-    styleConfig: {
-      width: '112.57%',
-      height: '213.15%',
-      left: '6.14%',
-      top: '-56.40%',
-    },
-  },
-  {
-    id: 'gym',
-    title: 'Gym',
-    src: '/images/gym.png',
-    href: '/shop?style=Gym',
-    mobileObjectPosition: 'object-[50%_15%]',
-    styleConfig: {
-      width: '111.05%',
-      height: '234.25%',
-      left: '13.02%',
-      top: '-51.21%',
-    },
-  },
-];
-
-export const DRESS_STYLES: DressStyleItem[] = [
-  ...DRESS_STYLES_ROW_1,
-  ...DRESS_STYLES_ROW_2,
-];
-
-export const REVIEWS: Review[] = [
-  {
-    id: 'r0',
-    author: 'Olivia T.',
-    isVerified: true,
-    rating: 5,
-    content:
-      '"Great customer service and premium quality fabrics. Will definitely be ordering again! The delivery was super quick as well."',
-    date: 'August 12, 2023',
-  },
-  {
-    id: 'r1',
-    author: 'Sarah M.',
-    isVerified: true,
-    rating: 5,
-    content:
-      '"I\'m blown away by the quality and style of the clothes I received from Shop.co. From casual wear to elegant dresses, every piece I\'ve bought has exceeded my expectations."',
-    date: 'August 13, 2023',
-  },
-  {
-    id: 'r2',
-    author: 'Alex K.',
-    isVerified: true,
-    rating: 5,
-    content:
-      '"Finding clothes that align with my personal style used to be a challenge until I discovered Shop.co. The range of options they offer is truly remarkable, catering to a variety of tastes and occasions."',
-    date: 'August 14, 2023',
-  },
-];
-
-export const PDP_REVIEWS: Review[] = [
-  {
-    id: 'pd-r1',
+    id: 'rev-1',
     author: 'Samantha D.',
     isVerified: true,
     rating: 4.5,
     content:
-      '"I absolutely love this t-shirt! The design is unique and the fabric feels so comfortable. As a fellow designer, I appreciate the attention to detail. It\'s become my favorite go-to shirt."',
-    date: 'August 14, 2023',
+      '"I absolutely love this t-shirt! The design is unique and the fabric feels so comfortable. As an apparel enthusiast, I appreciate the obvious attention to detail."',
+    date: 'August 14, 2024',
   },
   {
-    id: 'pd-r2',
+    id: 'rev-2',
     author: 'Alex M.',
+    isVerified: true,
+    rating: 4.0,
+    content:
+      '"The t-shirt exceeded my expectations! The colors are vibrant and the print quality is top-notch. Being a UI/UX designer myself, I love the minimal aesthetic."',
+    date: 'August 15, 2024',
+  },
+  {
+    id: 'rev-3',
+    author: 'Ethan R.',
+    isVerified: true,
+    rating: 3.5,
+    content:
+      '"This t-shirt is a must-have for anyone who appreciates great design. The fabric is soft, and it fits true to size. I have received plenty of compliments already."',
+    date: 'August 16, 2024',
+  },
+  {
+    id: 'rev-4',
+    author: 'Olivia P.',
     isVerified: true,
     rating: 4.5,
     content:
-      '"The t-shirt exceeded my expectations! The colors are vibrant and the print quality is top-notch. Being a UI/UX designer myself, I\'m quite picky about aesthetics, and this t-shirt definitely gets a thumbs up from me."',
-    date: 'August 15, 2023',
+      '"As a fashion enthusiast, I am extremely particular about details. This piece exceeded my expectations—the stitching and heavyweight weave are remarkable."',
+    date: 'August 17, 2024',
+  },
+  {
+    id: 'rev-5',
+    author: 'Liam K.',
+    isVerified: true,
+    rating: 4.0,
+    content:
+      '"This t-shirt is a fusion of comfort and street style. The minimal lettering and tailored sleeves make it my go-to choice for casual meetups."',
+    date: 'August 18, 2024',
+  },
+  {
+    id: 'rev-6',
+    author: 'Ava H.',
+    isVerified: true,
+    rating: 4.5,
+    content:
+      '"I am not just wearing a t-shirt; I am wearing a statement. The subtle graphic design speaks volumes without being overly loud. Five stars!"',
+    date: 'August 19, 2024',
   },
 ];
 
-export const MOCK_RELATED_PRODUCTS: Product[] = ALL_PRODUCTS.filter((p) =>
-  ['m1', 'm2', 'm3', 'm4'].includes(p.id)
-);
+// Alias export for components expecting REVIEWS directly
+export const REVIEWS = MOCK_REVIEWS;
 
-export const FEATURED_PDP_PRODUCT: DetailedProduct = {
-  ...ALL_PRODUCTS[0],
-  totalReviews: 451,
-  description:
-    'This graphic t-shirt which is perfect for any occasion. Crafted from a soft and breathable fabric, it offers superior comfort and style.',
-  images: {
-    hero: '/images/pd1.png',
-    thumbnails: ['/images/pd4.png', '/images/pd2.png', '/images/pd3.png'],
+// ============================================================================
+// 3. PRODUCTS CATALOG DATA
+// ============================================================================
+
+export const MOCK_PRODUCTS: Product[] = [
+  {
+    id: '1',
+    slug: 't-shirt-with-tape-details',
+    title: 'T-shirt with Tape Details',
+    src: '/images/m1.png',
+    image: '/images/m1.png',
+    rating: 4.5,
+    price: 120,
+    originalPrice: 120,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [
+      { name: 'Olive', hex: '#4F4631' },
+      { name: 'Forest Green', hex: '#314F4A' },
+      { name: 'Navy', hex: '#31344F' },
+    ],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
   },
-  reviews: PDP_REVIEWS,
-};
+  {
+    id: '2',
+    slug: 'skinny-fit-jeans',
+    title: 'Skinny Fit Jeans',
+    src: '/images/m2.png',
+    image: '/images/m2.png',
+    rating: 4.8,
+    price: 240,
+    originalPrice: 260,
+    discountPercentage: 20,
+    discount: 20,
+    category: 'Men',
+    subCategory: 'Jeans',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [
+      { name: 'Denim Blue', hex: '#1E3A8A' },
+      { name: 'Black', hex: '#000000' },
+    ],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
+  },
+  {
+    id: '3',
+    slug: 'checkered-shirt',
+    title: 'Checkered Shirt',
+    src: '/images/m3.png',
+    image: '/images/m3.png',
+    rating: 4.6,
+    price: 180,
+    originalPrice: 180,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'Shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [
+      { name: 'Red Plaid', hex: '#DC2626' },
+      { name: 'Blue Plaid', hex: '#2563EB' },
+    ],
+    sizes: ['Medium', 'Large', 'X-Large', 'XX-Large'],
+  },
+  {
+    id: '4',
+    slug: 'sleeve-striped-t-shirt',
+    title: 'Sleeve Striped T-shirt',
+    src: '/images/m4.png',
+    image: '/images/m4.png',
+    rating: 4.5,
+    price: 130,
+    originalPrice: 160,
+    discountPercentage: 30,
+    discount: 30,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Gym',
+    colors: [
+      { name: 'Orange', hex: '#F97316' },
+      { name: 'Black', hex: '#000000' },
+    ],
+    sizes: ['Small', 'Medium', 'Large'],
+  },
+  {
+    id: 'n1',
+    slug: 'vertical-striped-shirt',
+    title: 'Vertical Striped Shirt',
+    src: '/images/n1.png',
+    image: '/images/n1.png',
+    rating: 4.9,
+    price: 212,
+    originalPrice: 232,
+    discountPercentage: 20,
+    discount: 20,
+    category: 'Men',
+    subCategory: 'Shirts',
+    gender: 'Men',
+    dressStyle: 'Formal',
+    colors: [
+      { name: 'Green Stripe', hex: '#15803D' },
+      { name: 'Navy Stripe', hex: '#1E3A8A' },
+    ],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
+  },
+  {
+    id: 'n2',
+    slug: 'courage-graphic-t-shirt',
+    title: 'Courage Graphic T-shirt',
+    src: '/images/n2.png',
+    image: '/images/n2.png',
+    rating: 4.7,
+    price: 145,
+    originalPrice: 145,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [
+      { name: 'Burnt Orange', hex: '#EA580C' },
+      { name: 'Black', hex: '#000000' },
+    ],
+    sizes: ['Medium', 'Large', 'X-Large'],
+  },
+  {
+    id: 'n3',
+    slug: 'loose-fit-bermuda-shorts',
+    title: 'Loose Fit Bermuda Shorts',
+    src: '/images/n3.png',
+    image: '/images/n3.png',
+    rating: 4.3,
+    price: 80,
+    originalPrice: 80,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'Shorts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [
+      { name: 'Denim', hex: '#3B82F6' },
+      { name: 'Black', hex: '#000000' },
+    ],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
+  },
+  {
+    id: 'n4',
+    slug: 'faded-skinny-jeans',
+    title: 'Faded Skinny Jeans',
+    src: '/images/n4.png',
+    image: '/images/n4.png',
+    rating: 4.6,
+    price: 210,
+    originalPrice: 210,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'Jeans',
+    gender: 'Men',
+    dressStyle: 'Party',
+    colors: [
+      { name: 'Washed Black', hex: '#18181B' },
+      { name: 'Charcoal', hex: '#27272A' },
+    ],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
+  },
+];
 
-export function getProductById(id: string): DetailedProduct {
-  const found = ALL_PRODUCTS.find((p) => p.id === id);
-  if (found) {
-    return {
-      ...found,
-      totalReviews: 451,
-      description:
-        'This graphic t-shirt which is perfect for any occasion. Crafted from a soft and breathable fabric, it offers superior comfort and style.',
-      images: {
-        hero: found.src,
-        thumbnails: [found.src, '/images/pd2.png', '/images/pd3.png'],
-      },
-      reviews: PDP_REVIEWS,
-    };
-  }
-  return FEATURED_PDP_PRODUCT;
+// Alias exports for homepage sections
+export const NEW_ARRIVALS: Product[] = MOCK_PRODUCTS.slice(0, 4);
+export const TOP_SELLING: Product[] = MOCK_PRODUCTS.slice(4, 8);
+export const PRODUCTS: Product[] = MOCK_PRODUCTS;
+
+// ============================================================================
+// 4. RELATED PRODUCTS
+// ============================================================================
+
+export const MOCK_RELATED_PRODUCTS: Product[] = [
+  {
+    id: 'rel-1',
+    slug: 'polo-with-contrast-trims',
+    title: 'Polo with Contrast Trims',
+    src: '/images/m1.png',
+    image: '/images/m1.png',
+    rating: 4.0,
+    price: 212,
+    originalPrice: 242,
+    discountPercentage: 20,
+    discount: 20,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [{ name: 'Navy', hex: '#31344F' }],
+    sizes: ['Small', 'Medium', 'Large'],
+  },
+  {
+    id: 'rel-2',
+    slug: 'gradient-graphic-t-shirt',
+    title: 'Gradient Graphic T-shirt',
+    src: '/images/m2.png',
+    image: '/images/m2.png',
+    rating: 3.5,
+    price: 145,
+    originalPrice: 145,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [{ name: 'White', hex: '#FFFFFF' }],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
+  },
+  {
+    id: 'rel-3',
+    slug: 'polo-with-tipping-details',
+    title: 'Polo with Tipping Details',
+    src: '/images/m3.png',
+    image: '/images/m3.png',
+    rating: 4.5,
+    price: 180,
+    originalPrice: 180,
+    discountPercentage: 0,
+    discount: 0,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [{ name: 'Pink', hex: '#F506A4' }],
+    sizes: ['Medium', 'Large', 'X-Large'],
+  },
+  {
+    id: 'rel-4',
+    slug: 'black-striped-t-shirt',
+    title: 'Black Striped T-shirt',
+    src: '/images/m4.png',
+    image: '/images/m4.png',
+    rating: 5.0,
+    price: 120,
+    originalPrice: 150,
+    discountPercentage: 30,
+    discount: 30,
+    category: 'Men',
+    subCategory: 'T-shirts',
+    gender: 'Men',
+    dressStyle: 'Casual',
+    colors: [{ name: 'Black/White', hex: '#000000' }],
+    sizes: ['Small', 'Medium', 'Large', 'X-Large'],
+  },
+];
+
+export const RELATED_PRODUCTS = MOCK_RELATED_PRODUCTS;
+
+// ============================================================================
+// 5. DRESS STYLES GRID DATA & ROWS
+// ============================================================================
+
+export const DRESS_STYLE_CARDS: DressStyleItem[] = [
+  {
+    id: 'casual',
+    title: 'Casual',
+    src: '/images/c1.png',
+    href: '/shop?style=casual',
+    styleConfig: {
+      width: '407px',
+      height: '289px',
+      left: '0px',
+      top: '0px',
+    },
+    mobileObjectPosition: 'object-right-top',
+  },
+  {
+    id: 'formal',
+    title: 'Formal',
+    src: '/images/c2.png',
+    href: '/shop?style=formal',
+    styleConfig: {
+      width: '684px',
+      height: '289px',
+      left: '427px',
+      top: '0px',
+    },
+    mobileObjectPosition: 'object-top',
+  },
+  {
+    id: 'party',
+    title: 'Party',
+    src: '/images/c3.png',
+    href: '/shop?style=party',
+    styleConfig: {
+      width: '684px',
+      height: '289px',
+      left: '0px',
+      top: '309px',
+    },
+    mobileObjectPosition: 'object-top',
+  },
+  {
+    id: 'gym',
+    title: 'Gym',
+    src: '/images/c4.png',
+    href: '/shop?style=gym',
+    styleConfig: {
+      width: '407px',
+      height: '289px',
+      left: '704px',
+      top: '309px',
+    },
+    mobileObjectPosition: 'object-right-top',
+  },
+];
+
+// Row-wise exports for components rendering the split grid layout
+export const DRESS_STYLES_ROW_1: DressStyleItem[] = [
+  DRESS_STYLE_CARDS[0]!,
+  DRESS_STYLE_CARDS[1]!,
+];
+
+export const DRESS_STYLES_ROW_2: DressStyleItem[] = [
+  DRESS_STYLE_CARDS[2]!,
+  DRESS_STYLE_CARDS[3]!,
+];
+
+// ============================================================================
+// 6. QUERY & FILTER HELPER FUNCTIONS
+// ============================================================================
+
+export function getNewArrivals(): Product[] {
+  return NEW_ARRIVALS;
 }
 
-export function getFilteredProducts(params: FilterParams): Product[] {
-  let list = [...ALL_PRODUCTS];
+export function getTopSelling(): Product[] {
+  return TOP_SELLING;
+}
 
-  if (params.search && params.search.trim() !== '') {
-    const q = params.search.toLowerCase().trim();
-    list = list.filter(
+export function getProductById(id: string): DetailedProduct | undefined {
+  const product = MOCK_PRODUCTS.find((p) => p.id === id || p.slug === id);
+  if (!product) return undefined;
+
+  const resolvedCategory = product.category || 'Men';
+  const resolvedSubCategory = product.subCategory || 'T-shirts';
+  const heroImg = product.src || product.image || '/images/pd1.png';
+
+  return {
+    ...product,
+    category: resolvedCategory,
+    subCategory: resolvedSubCategory,
+    totalReviews: 451,
+    description:
+      'This graphic t-shirt is perfect for any occasion. Crafted from a soft and breathable heavyweight cotton fabric, it offers superior comfort and durability with a modern relaxed fit.',
+    images: {
+      hero: heroImg,
+      thumbnails: ['/images/pd1.png', '/images/pd2.png', '/images/pd3.png'],
+    },
+    reviews: MOCK_REVIEWS,
+  };
+}
+
+export function getProductBySlug(slug: string): DetailedProduct | undefined {
+  return getProductById(slug);
+}
+
+export function getFilteredProducts(filters: FilterParams): Product[] {
+  let filtered = [...MOCK_PRODUCTS];
+
+  // 1. Text Search Filter
+  if (filters.search) {
+    const query = filters.search.toLowerCase().trim();
+    filtered = filtered.filter(
       (p) =>
-        p.title.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q) ||
-        p.subCategory.toLowerCase().includes(q)
+        p.title.toLowerCase().includes(query) ||
+        (p.category?.toLowerCase().includes(query) ?? false) ||
+        (p.subCategory?.toLowerCase().includes(query) ?? false)
     );
   }
 
-  if (params.discount) {
-    list = list.filter((p) => (p.discountPercentage ?? 0) > 0);
+  // 2. Discount Filter
+  if (filters.discount) {
+    filtered = filtered.filter(
+      (p) => (p.discountPercentage ?? 0) > 0 || (p.discount ?? 0) > 0
+    );
   }
 
-  if (params.gender && params.gender.trim() !== '') {
-    const g = params.gender.toLowerCase().trim();
-    list = list.filter((p) => p.gender.toLowerCase() === g);
+  // 3. Gender Filter
+  if (filters.gender) {
+    const g = filters.gender.toLowerCase().trim();
+    filtered = filtered.filter(
+      (p) => p.gender?.toLowerCase() === g
+    );
   }
 
-  if (params.category && params.category.trim() !== '') {
-    const c = params.category.toLowerCase().trim();
-    list = list.filter(
+  // 4. Category Filter
+  if (filters.category) {
+    const c = filters.category.toLowerCase().trim();
+    filtered = filtered.filter(
       (p) =>
-        p.category.toLowerCase() === c ||
-        p.subCategory.toLowerCase() === c
+        p.category?.toLowerCase() === c ||
+        p.subCategory?.toLowerCase() === c
     );
   }
 
-  if (params.style && params.style.trim() !== '') {
-    const s = params.style.toLowerCase().trim();
-    list = list.filter((p) => p.dressStyle.toLowerCase() === s);
-  }
-
-  if (params.minPrice !== undefined) {
-    list = list.filter((p) => p.price >= (params.minPrice ?? 0));
-  }
-  if (params.maxPrice !== undefined) {
-    list = list.filter((p) => p.price <= (params.maxPrice ?? 500));
-  }
-
-  if (params.color && params.color.trim() !== '') {
-    const col = params.color.toLowerCase().trim();
-    list = list.filter((p) =>
-      p.colors.some((c) => c.name.toLowerCase() === col || c.hex.toLowerCase() === col)
+  // 5. Dress Style Filter
+  if (filters.style) {
+    const s = filters.style.toLowerCase().trim();
+    filtered = filtered.filter(
+      (p) => p.dressStyle?.toLowerCase() === s
     );
   }
 
-  if (params.size && params.size.trim() !== '') {
-    const sz = params.size.toLowerCase().trim();
-    list = list.filter((p) =>
-      p.sizes.some((s) => s.toLowerCase() === sz)
+  // 6. Price Range Filters
+  if (filters.minPrice !== undefined) {
+    filtered = filtered.filter((p) => p.price >= filters.minPrice!);
+  }
+  if (filters.maxPrice !== undefined) {
+    filtered = filtered.filter((p) => p.price <= filters.maxPrice!);
+  }
+
+  // 7. Color Swatch Filter
+  if (filters.color) {
+    const targetColor = filters.color.toLowerCase().trim();
+    filtered = filtered.filter(
+      (p) => p.colors?.some((col) => col.name.toLowerCase() === targetColor) ?? false
     );
   }
 
-  if (params.sort) {
-    switch (params.sort) {
+  // 8. Size Filter
+  if (filters.size) {
+    const targetSize = filters.size.toLowerCase().trim();
+    filtered = filtered.filter(
+      (p) => p.sizes?.some((sz) => sz.toLowerCase() === targetSize) ?? false
+    );
+  }
+
+  // 9. Sorting
+  if (filters.sort) {
+    switch (filters.sort) {
+      case 'price-asc':
       case 'price-low':
-        list.sort((a, b) => a.price - b.price);
+        filtered.sort((a, b) => a.price - b.price);
         break;
+      case 'price-desc':
       case 'price-high':
-        list.sort((a, b) => b.price - a.price);
+        filtered.sort((a, b) => b.price - a.price);
         break;
+      case 'popular':
       case 'rating':
-        list.sort((a, b) => b.rating - a.rating);
+        filtered.sort((a, b) => b.rating - a.rating);
         break;
       case 'newest':
       default:
+        filtered.sort((a, b) => Number(b.id) - Number(a.id));
         break;
     }
   }
 
-  return list;
+  return filtered;
 }

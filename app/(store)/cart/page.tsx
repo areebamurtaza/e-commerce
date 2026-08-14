@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ChevronRight, ShoppingBag, ArrowLeft } from 'lucide-react';
 import { useCartStore } from '@/lib/cart-store';
 import { CartItemCard } from '@/components/cart/cart-item-card';
 import { OrderSummary } from '@/components/cart/order-summary';
 
 export default function CartPage() {
+  const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
 
   const {
@@ -40,7 +42,7 @@ export default function CartPage() {
   const total = getTotal();
 
   const handleCheckout = () => {
-    alert('Proceeding to checkout page...');
+    router.push('/checkout');
   };
 
   return (

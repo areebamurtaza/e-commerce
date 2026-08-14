@@ -1,23 +1,42 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-integral: var(--font-integral), 'Space_Grotesk', 'Montserrat', sans-serif;
   --font-satoshi: var(--font-satoshi), 'Montserrat', sans-serif;
 }
 
 @layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #000000;
+    --card-bg: #ffffff;
+    --card-border: rgba(0, 0, 0, 0.1);
+    --input-bg: #f0f0f0;
+  }
+
+  .dark {
+    --background: #000000;
+    --foreground: #ffffff;
+    --card-bg: #09090b;
+    --card-border: #27272a;
+    --input-bg: #18181b;
+  }
+
   html {
     font-family: var(--font-satoshi), sans-serif;
     scroll-behavior: smooth;
   }
 
   body {
-    background-color: #ffffff;
-    color: #000000;
+    background-color: var(--background);
+    color: var(--foreground);
     font-family: var(--font-satoshi), sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 }
 

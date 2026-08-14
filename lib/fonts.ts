@@ -10,7 +10,6 @@ export const integralCF = localFont({
   ],
   variable: '--font-integral',
   display: 'swap',
-  fallback: ['system-ui', 'sans-serif'],
 });
 
 export const satoshi = localFont({
@@ -26,11 +25,6 @@ export const satoshi = localFont({
       style: 'normal',
     },
     {
-      path: '../public/fonts/Montserrat-SemiBold.woff2',
-      weight: '600',
-      style: 'normal',
-    },
-    {
       path: '../public/fonts/Montserrat-Bold.woff2',
       weight: '700',
       style: 'normal',
@@ -38,5 +32,4 @@ export const satoshi = localFont({
   ],
   variable: '--font-satoshi',
   display: 'swap',
-  fallback: ['system-ui', 'sans-serif'],
 });

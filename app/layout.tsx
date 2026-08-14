@@ -1,20 +1,15 @@
 import type { Metadata, Viewport } from 'next';
+import { ClerkProvider } from '@clerk/nextjs';
+import { ThemeProvider } from '@/components/theme-provider';
 import { satoshi, integralCF } from '@/lib/fonts';
 import '@/app/globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'SHOP.CO | High Quality E-Commerce Fashion',
+    default: 'SHOP.CO | Modern E-Commerce Platform',
     template: '%s | SHOP.CO',
   },
-  description:
-    'Find clothes that match your style. Explore our curated high-quality e-commerce fashion collection.',
-  keywords: ['fashion', 'e-commerce', 'clothing', 'streetwear', 'shop.co'],
-  authors: [{ name: 'SHOP.CO Team' }],
-  robots: {
-    index: true,
-    follow: true,
-  },
+  description: 'High-fashion e-commerce storefront and admin management system.',
 };
 
 export const viewport: Viewport = {
@@ -29,14 +24,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${satoshi.variable} ${integralCF.variable}`}
-      suppressHydrationWarning
-    >
-      <body className="min-h-screen bg-white font-satoshi text-black antialiased selection:bg-black selection:text-white">
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html
+        lang="en"
+        className={`${satoshi.variable} ${integralCF.variable}`}
+        suppressHydrationWarning
+      >
+        <body className="min-h-screen bg-white dark:bg-black font-satoshi text-black dark:text-white antialiased transition-colors">
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {children}
+          </ThemeProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

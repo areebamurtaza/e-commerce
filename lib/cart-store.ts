@@ -1,84 +1,71 @@
+// lib/cart-store.ts
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { CartItem } from '@/types/cart';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { CartItem, CartItemInput, OrderSummaryValues } from '@/types/cart';
 
-const INITIAL_CART_ITEMS: CartItem[] = [
-  {
-    id: 'cart-item-1',
-    productId: '1',
-    title: 'Gradient Graphic T-shirt',
-    image: '/images/m2.png',
-    size: 'Large',
-    color: 'White',
-    price: 145,
-    quantity: 1,
-  },
-  {
-    id: 'cart-item-2',
-    productId: 'n3',
-    title: 'Checkered Shirt',
-    image: '/images/n3.png',
-    size: 'Medium',
-    color: 'Red',
-    price: 180,
-    quantity: 1,
-  },
-  {
-    id: 'cart-item-3',
-    productId: 'n2',
-    title: 'Skinny Fit Jeans',
-    image: '/images/n2.png',
-    size: 'Large',
-    color: 'Blue',
-    price: 240,
-    quantity: 1,
-  },
-];
-
-interface CartState {
+export interface CartState {
   items: CartItem[];
   discountPercentage: number;
   deliveryFee: number;
   promoCode: string;
   isPromoApplied: boolean;
-  addItem: (item: Omit<CartItem, 'id'>) => void;
+
+  // Mutations
+  addItem: (item: CartItemInput) => void;
   updateQuantity: (id: string, delta: number) => void;
   removeItem: (id: string) => void;
   applyPromoCode: (code: string) => boolean;
   clearCart: () => void;
+
+  // Selectors & Computations
   getSubtotal: () => number;
   getDiscountAmount: () => number;
   getTotal: () => number;
   getTotalItemsCount: () => number;
+  getSummary: () => OrderSummaryValues;
+
+  // Backward-compatibility Aliases
+  getTotalPrice: () => number;
+  getTotalItems: () => number;
 }
 
 export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
-      items: INITIAL_CART_ITEMS,
-      discountPercentage: 20,
+      items: [], // Default to empty array for live database synchronization
+      discountPercentage: 0,
       deliveryFee: 15,
       promoCode: '',
       isPromoApplied: false,
 
-      addItem: (newItem) => {
+      addItem: (newItem: CartItemInput) => {
         set((state) => {
-          const existingIndex = state.items.findIndex(
-            (item) =>
+          const existingIndex = state.items.findIndex((item) => {
+            if (newItem.variantId && item.variantId) {
+              return item.variantId === newItem.variantId;
+            }
+            return (
               item.productId === newItem.productId &&
-              item.size === newItem.size &&
-              item.color === newItem.color
-          );
+              item.size.toLowerCase() === newItem.size.toLowerCase() &&
+              item.color.toLowerCase() === newItem.color.toLowerCase()
+            );
+          });
 
           if (existingIndex > -1) {
             const updatedItems = [...state.items];
-            updatedItems[existingIndex].quantity += newItem.quantity;
+            const currentItem = updatedItems[existingIndex];
+            if (currentItem) {
+              updatedItems[existingIndex] = {
+                ...currentItem,
+                quantity: currentItem.quantity + newItem.quantity,
+              };
+            }
             return { items: updatedItems };
           }
 
           const createdItem: CartItem = {
             ...newItem,
-            id: `cart-item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            id: newItem.variantId || `cart-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           };
 
           return { items: [...state.items, createdItem] };
@@ -87,13 +74,15 @@ export const useCartStore = create<CartState>()(
 
       updateQuantity: (id: string, delta: number) => {
         set((state) => ({
-          items: state.items.map((item) => {
-            if (item.id === id) {
-              const newQuantity = Math.max(1, item.quantity + delta);
-              return { ...item, quantity: newQuantity };
-            }
-            return item;
-          }),
+          items: state.items
+            .map((item) => {
+              if (item.id === id) {
+                const newQuantity = item.quantity + delta;
+                return newQuantity > 0 ? { ...item, quantity: newQuantity } : null;
+              }
+              return item;
+            })
+            .filter((item): item is CartItem => item !== null),
         }));
       },
 
@@ -104,7 +93,15 @@ export const useCartStore = create<CartState>()(
       },
 
       applyPromoCode: (code: string) => {
-        const trimmed = code.trim();
+        const trimmed = code.trim().toUpperCase();
+        if (trimmed === 'SHOP20') {
+          set({ promoCode: trimmed, discountPercentage: 20, isPromoApplied: true });
+          return true;
+        }
+        if (trimmed === 'SAVE30') {
+          set({ promoCode: trimmed, discountPercentage: 30, isPromoApplied: true });
+          return true;
+        }
         if (trimmed.length > 0) {
           set({ promoCode: trimmed, isPromoApplied: true });
           return true;
@@ -115,28 +112,56 @@ export const useCartStore = create<CartState>()(
       clearCart: () => set({ items: [] }),
 
       getSubtotal: () => {
-        return get().items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const rawSubtotal = get().items.reduce(
+          (sum, item) => sum + item.price * item.quantity,
+          0
+        );
+        return Math.round(rawSubtotal * 100) / 100;
       },
 
       getDiscountAmount: () => {
         const subtotal = get().getSubtotal();
         if (get().items.length === 0) return 0;
-        return Math.round(subtotal * (get().discountPercentage / 100));
+        const discount = (subtotal * get().discountPercentage) / 100;
+        return Math.round(discount * 100) / 100;
       },
 
       getTotal: () => {
         const subtotal = get().getSubtotal();
         if (get().items.length === 0) return 0;
         const discount = get().getDiscountAmount();
-        return subtotal - discount + get().deliveryFee;
+        const fee = subtotal > 200 ? 0 : get().deliveryFee;
+        const total = Math.max(0, subtotal - discount + fee);
+        return Math.round(total * 100) / 100;
       },
 
       getTotalItemsCount: () => {
         return get().items.reduce((sum, item) => sum + item.quantity, 0);
       },
+
+      getSummary: (): OrderSummaryValues => {
+        const subtotal = get().getSubtotal();
+        const discountPercentage = get().discountPercentage;
+        const discountAmount = get().getDiscountAmount();
+        const deliveryFee = subtotal > 200 || subtotal === 0 ? 0 : get().deliveryFee;
+        const total = get().getTotal();
+
+        return {
+          subtotal,
+          discountPercentage,
+          discountAmount,
+          deliveryFee,
+          total,
+        };
+      },
+
+      getTotalPrice: () => get().getSubtotal(),
+      getTotalItems: () => get().getTotalItemsCount(),
     }),
     {
       name: 'shopco-cart-storage',
+      storage: createJSONStorage(() => localStorage),
+      skipHydration: true,
     }
   )
 );

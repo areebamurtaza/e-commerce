@@ -1,3 +1,5 @@
+// types/product.ts
+
 export interface ProductColor {
   name: string;
   hex: string;
@@ -12,7 +14,8 @@ export type ProductSize =
   | 'X-Large'
   | 'XX-Large'
   | '3X-Large'
-  | '4X-Large';
+  | '4X-Large'
+  | string; // Added string to support DB dynamic sizes
 
 export interface Review {
   id: string;
@@ -27,18 +30,20 @@ export interface Product {
   id: string;
   slug?: string;
   title: string;
-  src: string;
+  src?: string;
+  image?: string; // Support new DB mapping
   rating: number;
   price: number;
   originalPrice?: number;
   discountPercentage?: number;
+  discount?: number; // Support new DB mapping
   href?: string;
-  category: string;
-  subCategory: string;
-  gender: 'Men' | 'Women' | 'Kids';
-  dressStyle: 'Casual' | 'Formal' | 'Party' | 'Gym';
-  colors: ProductColor[];
-  sizes: ProductSize[];
+  category?: string; // Made optional for lightweight DB queries
+  subCategory?: string; // Made optional
+  gender?: 'Men' | 'Women' | 'Kids' | string; // Made optional
+  dressStyle?: 'Casual' | 'Formal' | 'Party' | 'Gym' | string; // Made optional
+  colors?: ProductColor[]; // Made optional
+  sizes?: ProductSize[]; // Made optional
 }
 
 export interface DetailedProduct extends Product {
