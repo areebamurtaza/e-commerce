@@ -1,86 +1,104 @@
 // types/product.ts
-
-export interface ProductColor {
-  name: string;
-  hex: string;
-}
+import { DressStyle, Gender } from '@prisma/client';
 
 export type ProductSize =
-  | 'XX-Small'
-  | 'X-Small'
+  | 'XXS'
+  | 'XS'
+  | 'S'
+  | 'M'
+  | 'L'
+  | 'XL'
+  | '2XL'
+  | '3XL'
+  | '4XL'
   | 'Small'
   | 'Medium'
   | 'Large'
   | 'X-Large'
-  | 'XX-Large'
-  | '3X-Large'
-  | '4X-Large'
-  | string; // Added string to support DB dynamic sizes
+  | string;
+
+export interface ProductColor {
+  name: string;
+  hex?: string;
+  colorHex?: string;
+}
 
 export interface Review {
   id: string;
   author: string;
-  isVerified: boolean;
   rating: number;
-  content: string;
+  comment?: string;
+  content?: string;
   date?: string;
+  createdAt?: string | Date;
+  verified?: boolean;
+  isVerified?: boolean;
+}
+
+export interface DressStyleItem {
+  id?: string;
+  name?: string;
+  title?: string;
+  slug: string;
+  image: string;
+  href?: string;
+}
+
+export interface FilterParams {
+  category?: string;
+  gender?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  colors?: string[];
+  color?: string;
+  sizes?: string[];
+  size?: string;
+  dressStyle?: string;
+  style?: string;
+  discount?: number | boolean | string;
+  sort?: string;
+  page?: number;
+  search?: string;
+}
+
+export interface ProductImagesObject {
+  hero?: string;
+  gallery?: string[];
+  [key: string]: unknown;
 }
 
 export interface Product {
   id: string;
-  slug?: string;
   title: string;
-  src?: string;
-  image?: string; // Support new DB mapping
-  rating: number;
+  slug: string;
   price: number;
+  basePrice?: number;
   originalPrice?: number;
+  discount?: number;
   discountPercentage?: number;
-  discount?: number; // Support new DB mapping
-  href?: string;
-  category?: string; // Made optional for lightweight DB queries
-  subCategory?: string; // Made optional
-  gender?: 'Men' | 'Women' | 'Kids' | string; // Made optional
-  dressStyle?: 'Casual' | 'Formal' | 'Party' | 'Gym' | string; // Made optional
-  colors?: ProductColor[]; // Made optional
-  sizes?: ProductSize[]; // Made optional
+  rating: number;
+  reviewCount?: number;
+  src?: string;
+  image?: string;
+  category?: string;
+  subCategory?: string;
+  dressStyle?: DressStyle | 'Casual' | 'Formal' | 'Party' | 'Gym' | string;
+  gender?: Gender | 'Men' | 'Women' | 'Kids' | 'Unisex' | string;
+  description?: string;
+  colors?: ProductColor[];
+  sizes?: string[];
+  images?: string[] | ProductImagesObject | Array<string | ProductImagesObject>;
+  isNewArrival?: boolean;
+  isFeatured?: boolean;
 }
 
 export interface DetailedProduct extends Product {
-  totalReviews: number;
-  description: string;
-  images: {
-    hero: string;
-    thumbnails: string[];
-  };
-  reviews: Review[];
+  breadcrumbs?: { label: string; href: string }[];
+  sku?: string;
+  details?: string[];
+  faqs?: { question: string; answer: string }[];
+  reviewsList?: Review[];
+  totalReviews?: number;
 }
 
-export interface DressStyleItem {
-  id: string;
-  title: string;
-  src: string;
-  href: string;
-  styleConfig: {
-    width: string;
-    height: string;
-    left: string;
-    top: string;
-    transform?: string;
-  };
-  mobileObjectPosition: string;
-}
-
-export interface FilterParams {
-  search?: string;
-  discount?: boolean;
-  gender?: string;
-  category?: string;
-  style?: string;
-  minPrice?: number;
-  maxPrice?: number;
-  color?: string;
-  size?: string;
-  sort?: string;
-  page?: number;
-}
+export type ProductCardData = Product;

@@ -10,6 +10,7 @@ import {
   Controller,
   SubmitHandler,
   SubmitErrorHandler,
+  FieldErrors,
 } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { createProduct } from '@/actions/product';
@@ -30,26 +31,39 @@ import {
   FileImage,
 } from 'lucide-react';
 
+interface CategoryOption {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 interface ProductFormProps {
-  categories: Array<{ id: string; name: string; slug: string }>;
+  categories: CategoryOption[];
 }
 
 const AVAILABLE_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'] as const;
+
 const GENDERS: Array<{ label: string; value: Gender }> = [
-  { label: "Men's Apparel", value: 'MEN' },
-  { label: "Women's Apparel", value: 'WOMEN' },
-  { label: "Kids' Apparel", value: 'KIDS' },
-  { label: 'Unisex', value: 'UNISEX' },
+  { label: "Men's Apparel", value: Gender.MEN },
+  { label: "Women's Apparel", value: Gender.WOMEN },
+  { label: "Kids' Apparel", value: Gender.KIDS },
+  { label: 'Unisex', value: Gender.UNISEX },
 ];
-const DRESS_STYLES: DressStyle[] = ['CASUAL', 'FORMAL', 'PARTY', 'GYM'];
+
+const DRESS_STYLES: DressStyle[] = [
+  DressStyle.CASUAL,
+  DressStyle.FORMAL,
+  DressStyle.PARTY,
+  DressStyle.GYM,
+];
 
 export function ProductForm({ categories }: ProductFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [isDraft, setIsDraft] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDraft, setIsDraft] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,9 +75,9 @@ export function ProductForm({ categories }: ProductFormProps) {
       description: '',
       basePrice: 120.0,
       discountPercentage: 0,
-      gender: 'MEN',
+      gender: Gender.MEN,
       categoryId: '',
-      dressStyle: 'CASUAL',
+      dressStyle: DressStyle.CASUAL,
       isFeatured: false,
       isNewArrival: true,
       images: [{ url: '/images/hero1.png', isPrimary: true }],
@@ -89,20 +103,22 @@ export function ProductForm({ categories }: ProductFormProps) {
     formState: { errors },
   } = form;
 
-  const selectedGender = watch('gender');
+  const selectedGender = (watch('gender') || Gender.MEN) as Gender;
   const currentCategoryId = watch('categoryId');
   const watchTitle = watch('title');
   const watchedImages = watch('images');
 
   // Reactively calculate available subcategories for the selected department
-  const availableCategories = useMemo(() => {
-    const departmentConfig = DEPARTMENT_TAXONOMY[selectedGender] || DEPARTMENT_TAXONOMY.MEN;
-    const allowedSlugs = departmentConfig.subcategories.map((s) => s.slug.toLowerCase());
+  const availableCategories = useMemo<CategoryOption[]>(() => {
+    const departmentConfig =
+      DEPARTMENT_TAXONOMY[selectedGender] || DEPARTMENT_TAXONOMY[Gender.MEN];
+    const allowedSlugs = departmentConfig.subcategories.map((s: { slug: string }) =>
+      s.slug.toLowerCase()
+    );
 
-    // Match database category records against the department subcategories
     const matched = categories.filter((cat) =>
       allowedSlugs.some(
-        (slug) =>
+        (slug: string) =>
           cat.slug.toLowerCase() === slug ||
           cat.name.toLowerCase().includes(slug) ||
           slug.includes(cat.slug.toLowerCase())
@@ -116,7 +132,7 @@ export function ProductForm({ categories }: ProductFormProps) {
   useEffect(() => {
     if (availableCategories.length > 0) {
       const isCurrentValid = availableCategories.some((c) => c.id === currentCategoryId);
-      if (!isCurrentValid) {
+      if (!isCurrentValid && availableCategories[0]) {
         setValue('categoryId', availableCategories[0].id, { shouldValidate: true });
       }
     }
@@ -140,7 +156,7 @@ export function ProductForm({ categories }: ProductFormProps) {
     name: 'variants',
   });
 
-  const handleGenerateSlug = () => {
+  const handleGenerateSlug = (): void => {
     if (!watchTitle) return;
     const generated = watchTitle
       .toLowerCase()
@@ -151,19 +167,19 @@ export function ProductForm({ categories }: ProductFormProps) {
     setValue('slug', generated, { shouldValidate: true });
   };
 
-  const processFiles = (files: FileList | null) => {
+  const processFiles = (files: FileList | null): void => {
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file) => {
+    Array.from(files).forEach((file: File) => {
       if (!file.type.startsWith('image/')) {
         alert('Please select valid image files only (PNG, JPG, WEBP).');
         return;
       }
 
       const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64Url = event.target?.result as string;
-        if (base64Url) {
+      reader.onload = (event: ProgressEvent<FileReader>) => {
+        const base64Url = event.target?.result;
+        if (typeof base64Url === 'string') {
           appendImage({
             url: base64Url,
             isPrimary: imageFields.length === 0,
@@ -174,28 +190,28 @@ export function ProductForm({ categories }: ProductFormProps) {
     });
   };
 
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
     processFiles(e.target.files);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     setIsDragging(false);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     setIsDragging(false);
     processFiles(e.dataTransfer.files);
   };
 
-  const onSubmit: SubmitHandler<ProductFormValues> = (data) => {
+  const onSubmit: SubmitHandler<ProductFormValues> = (data: ProductFormValues) => {
     setServerError(null);
     setValidationErrors([]);
 
@@ -216,31 +232,47 @@ export function ProductForm({ categories }: ProductFormProps) {
     });
   };
 
-  const onInvalid: SubmitErrorHandler<ProductFormValues> = (formErrors) => {
+  const onInvalid: SubmitErrorHandler<ProductFormValues> = (
+    formErrors: FieldErrors<ProductFormValues>
+  ) => {
     const errorList: string[] = [];
 
-    if (formErrors.title) errorList.push(`Title: ${formErrors.title.message}`);
-    if (formErrors.slug) errorList.push(`Slug: ${formErrors.slug.message}`);
-    if (formErrors.description) errorList.push(`Description: ${formErrors.description.message}`);
-    if (formErrors.basePrice) errorList.push(`Base Price: ${formErrors.basePrice.message}`);
-    if (formErrors.gender) errorList.push(`Department: ${formErrors.gender.message}`);
-    if (formErrors.categoryId) errorList.push(`Category: ${formErrors.categoryId.message}`);
+    if (formErrors.title?.message) errorList.push(`Title: ${formErrors.title.message}`);
+    if (formErrors.slug?.message) errorList.push(`Slug: ${formErrors.slug.message}`);
+    if (formErrors.description?.message)
+      errorList.push(`Description: ${formErrors.description.message}`);
+    if (formErrors.basePrice?.message)
+      errorList.push(`Base Price: ${formErrors.basePrice.message}`);
+    if (formErrors.gender?.message) errorList.push(`Department: ${formErrors.gender.message}`);
+    if (formErrors.categoryId?.message)
+      errorList.push(`Category: ${formErrors.categoryId.message}`);
+
     if (formErrors.images) {
       if (formErrors.images.message) {
         errorList.push(`Images: ${formErrors.images.message}`);
       } else if (Array.isArray(formErrors.images)) {
-        formErrors.images.forEach((imgErr, idx) => {
-          if (imgErr?.url) errorList.push(`Image #${idx + 1}: ${imgErr.url.message}`);
+        formErrors.images.forEach((imgErr, idx: number) => {
+          if (imgErr?.url?.message) {
+            errorList.push(`Image #${idx + 1}: ${imgErr.url.message}`);
+          }
         });
       }
     }
+
     if (formErrors.variants) {
       if (formErrors.variants.message) {
         errorList.push(`Variants: ${formErrors.variants.message}`);
       } else if (Array.isArray(formErrors.variants)) {
-        formErrors.variants.forEach((vErr, idx) => {
-          if (vErr?.sku) errorList.push(`Variant #${idx + 1} SKU: ${vErr.sku.message}`);
-          if (vErr?.colorHex) errorList.push(`Variant #${idx + 1} Hex: ${vErr.colorHex.message}`);
+        formErrors.variants.forEach((vErr, idx: number) => {
+          if (vErr?.sku?.message) {
+            errorList.push(`Variant #${idx + 1} SKU: ${vErr.sku.message}`);
+          }
+          if (vErr?.size?.message) {
+            errorList.push(`Variant #${idx + 1} Size: ${vErr.size.message}`);
+          }
+          if (vErr?.colorHex?.message) {
+            errorList.push(`Variant #${idx + 1} Color: ${vErr.colorHex.message}`);
+          }
         });
       }
     }
@@ -248,7 +280,7 @@ export function ProductForm({ categories }: ProductFormProps) {
     setValidationErrors(errorList);
   };
 
-  const handleAddVariantRow = () => {
+  const handleAddVariantRow = (): void => {
     const randomSku = `SKU-${Math.floor(1000 + Math.random() * 9000)}-L-BLU`;
     appendVariant({
       sku: randomSku,
@@ -362,7 +394,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                   <button
                     type="button"
                     onClick={handleGenerateSlug}
-                    className="text-[11px] font-bold text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white flex items-center gap-1"
+                    className="text-[11px] font-bold text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white flex items-center gap-1 cursor-pointer"
                   >
                     <Sparkles className="h-3 w-3" /> Auto-generate from title
                   </button>
@@ -379,7 +411,7 @@ export function ProductForm({ categories }: ProductFormProps) {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-black dark:text-white">
-                  Description (Min 20 characters)
+                  Description (Min 10 characters)
                 </label>
                 <textarea
                   rows={4}
@@ -460,6 +492,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                           src={currentUrl}
                           alt={`Product photo ${idx + 1}`}
                           fill
+                          sizes="48px"
                           className="object-cover"
                           unoptimized
                         />
@@ -480,7 +513,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                       <input
                         type="radio"
                         name="primaryImageRadio"
-                        checked={watch(`images.${idx}.isPrimary`)}
+                        checked={Boolean(watchedImages?.[idx]?.isPrimary)}
                         onChange={() => {
                           imageFields.forEach((_, i) => {
                             setValue(`images.${i}.isPrimary`, i === idx);
@@ -536,7 +569,9 @@ export function ProductForm({ categories }: ProductFormProps) {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">SKU Code</label>
+                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">
+                        SKU Code
+                      </label>
                       <Input
                         placeholder="SKU-PROD-01"
                         className="h-8 text-xs font-mono rounded-[62px] bg-white dark:bg-zinc-900 border-none text-black dark:text-white"
@@ -545,7 +580,9 @@ export function ProductForm({ categories }: ProductFormProps) {
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">Apparel Size</label>
+                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">
+                        Apparel Size
+                      </label>
                       <select
                         className="w-full h-8 rounded-[62px] bg-white dark:bg-zinc-900 border-none px-3 text-xs text-black dark:text-white focus:outline-none cursor-pointer"
                         {...register(`variants.${idx}.size`)}
@@ -559,7 +596,9 @@ export function ProductForm({ categories }: ProductFormProps) {
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">Color (Name / Hex)</label>
+                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">
+                        Color (Name / Hex)
+                      </label>
                       <div className="flex items-center gap-2">
                         <Input
                           placeholder="e.g. Navy"
@@ -584,7 +623,9 @@ export function ProductForm({ categories }: ProductFormProps) {
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                     <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">Available Stock</label>
+                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">
+                        Available Stock
+                      </label>
                       <Input
                         type="number"
                         min="0"
@@ -595,7 +636,9 @@ export function ProductForm({ categories }: ProductFormProps) {
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">Price Offset ($)</label>
+                      <label className="text-[11px] font-bold text-black/60 dark:text-zinc-400">
+                        Price Offset ($)
+                      </label>
                       <Input
                         type="number"
                         step="0.01"
@@ -632,7 +675,9 @@ export function ProductForm({ categories }: ProductFormProps) {
             <h3 className="font-bold text-base text-black dark:text-white">Pricing</h3>
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-black dark:text-white">Base Price ($ USD)</label>
+                <label className="text-xs font-bold text-black dark:text-white">
+                  Base Price ($ USD)
+                </label>
                 <Input
                   type="number"
                   step="0.01"
@@ -645,7 +690,9 @@ export function ProductForm({ categories }: ProductFormProps) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-black dark:text-white">Discount Percentage (%)</label>
+                <label className="text-xs font-bold text-black dark:text-white">
+                  Discount Percentage (%)
+                </label>
                 <Input
                   type="number"
                   min="0"
@@ -658,13 +705,15 @@ export function ProductForm({ categories }: ProductFormProps) {
             </div>
           </Card>
 
-          {/* Classification (Reactive Department + Category Hierarchy) */}
+          {/* Classification */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
             <h3 className="font-bold text-base text-black dark:text-white">Classification</h3>
             <div className="space-y-3">
-              {/* Target Department Selection */}
+              {/* Target Department */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-black dark:text-white">Target Department</label>
+                <label className="text-xs font-bold text-black dark:text-white">
+                  Target Department
+                </label>
                 <select
                   className="w-full h-9 rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-4 text-xs text-black dark:text-white focus:outline-none cursor-pointer font-medium"
                   {...register('gender')}
@@ -680,7 +729,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                 )}
               </div>
 
-              {/* Dynamically Filtered Subcategory Dropdown */}
+              {/* Subcategory */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-black dark:text-white">
@@ -722,7 +771,7 @@ export function ProductForm({ categories }: ProductFormProps) {
             </div>
           </Card>
 
-          {/* Flags */}
+          {/* Visibility Flags */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
             <h3 className="font-bold text-base text-black dark:text-white">Storefront Flags</h3>
             <div className="space-y-3">

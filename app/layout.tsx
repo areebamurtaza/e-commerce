@@ -1,36 +1,60 @@
+// app/layout.tsx
 import type { Metadata, Viewport } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ThemeProvider } from '@/components/theme-provider';
-import { satoshi, integralCF } from '@/lib/fonts';
+import { integralCF, satoshi } from '@/lib/fonts';
+import { cn } from '@/lib/utils';
 import '@/app/globals.css';
 
-export const metadata: Metadata = {
-  title: {
-    default: 'SHOP.CO | Modern E-Commerce Platform',
-    template: '%s | SHOP.CO',
-  },
-  description: 'High-fashion e-commerce storefront and admin management system.',
-};
-
 export const viewport: Viewport = {
-  themeColor: '#000000',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#000000' },
+  ],
   width: 'device-width',
   initialScale: 1,
+  maximumScale: 5,
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
+export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || 'https://shopco-byareeba.netlify.app'
+  ),
+  title: {
+    default: 'SHOP.CO | High-End Fashion & Apparel',
+    template: '%s | SHOP.CO',
+  },
+  description:
+    'Discover meticulously crafted fashion apparel designed for your unique style. Browse curated collections of contemporary garments, streetwear, and formal luxury.',
+  keywords: [
+    'fashion',
+    'luxury clothing',
+    'streetwear',
+    'apparel',
+    'e-commerce',
+    'men fashion',
+    'women fashion',
+    'shop.co',
+  ],
+};
+
+interface RootLayoutProps {
   children: React.ReactNode;
-}>) {
+}
+
+export default function RootLayout({ children }: Readonly<RootLayoutProps>) {
   return (
     <ClerkProvider>
       <html
         lang="en"
-        className={`${satoshi.variable} ${integralCF.variable}`}
+        className={cn(
+          'scroll-smooth antialiased',
+          integralCF.variable,
+          satoshi.variable
+        )}
         suppressHydrationWarning
       >
-        <body className="min-h-screen bg-white dark:bg-black font-satoshi text-black dark:text-white antialiased transition-colors">
+        <body className="min-h-screen bg-white font-satoshi text-black antialiased transition-colors duration-200 selection:bg-black selection:text-white dark:bg-black dark:text-white dark:selection:bg-white dark:selection:text-black">
           <ThemeProvider
             attribute="class"
             defaultTheme="system"

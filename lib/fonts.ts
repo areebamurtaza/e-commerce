@@ -1,3 +1,4 @@
+// lib/fonts.ts
 import localFont from 'next/font/local';
 
 export const integralCF = localFont({
@@ -10,6 +11,7 @@ export const integralCF = localFont({
   ],
   variable: '--font-integral',
   display: 'swap',
+  preload: true,
 });
 
 export const satoshi = localFont({
@@ -32,4 +34,5 @@ export const satoshi = localFont({
   ],
   variable: '--font-satoshi',
   display: 'swap',
+  preload: true,
 });

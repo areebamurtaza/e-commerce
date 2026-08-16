@@ -1,38 +1,76 @@
+// app/(store)/page.tsx
 import { HeroSection } from '@/components/home/hero-section';
 import { BrandBar } from '@/components/home/brand-bar';
 import { ProductSection } from '@/components/home/product-section';
 import { DressStyleGrid } from '@/components/home/dress-style-grid';
 import { ReviewsSection } from '@/components/home/reviews-section';
-import { NEW_ARRIVALS, TOP_SELLING } from '@/lib/mock-data';
+import { getProducts, ProductWithRelations } from '@/actions/product';
+import { Product } from '@/types/product';
 
-export default function StoreHomePage() {
+export const revalidate = 3600; // ISR cache revalidation every 1 hour
+
+function mapRelationalProductToViewModel(p: ProductWithRelations): Product {
+  const primaryImg =
+    p.images.find((img) => img.isPrimary)?.url ||
+    p.images[0]?.url ||
+    '/images/pd1.png';
+
+  return {
+    id: p.id,
+    title: p.title,
+    slug: p.slug,
+    price: p.basePrice,
+    basePrice: p.basePrice,
+    discount: p.discountPercentage,
+    discountPercentage: p.discountPercentage,
+    rating: p.rating,
+    reviewCount: p.reviewCount,
+    src: primaryImg,
+    image: primaryImg,
+    category: p.category?.name || 'Apparel',
+    dressStyle: p.dressStyle,
+    gender: p.gender,
+  };
+}
+
+export default async function HomePage() {
+  const [newArrivalsRes, topSellingRes] = await Promise.all([
+    getProducts({ isNewArrival: true, limit: 4, sort: 'newest' }),
+    getProducts({ sort: 'popular', limit: 4 }),
+  ]);
+
+  const newArrivals: Product[] =
+    newArrivalsRes.success && newArrivalsRes.data
+      ? newArrivalsRes.data.products.map(mapRelationalProductToViewModel)
+      : [];
+
+  const topSelling: Product[] =
+    topSellingRes.success && topSellingRes.data
+      ? topSellingRes.data.products.map(mapRelationalProductToViewModel)
+      : [];
+
   return (
-    <div className="w-full bg-white overflow-hidden">
+    <div className="w-full bg-white dark:bg-black transition-colors">
       <HeroSection />
-      
-      {/* Brand Bar section contains id="brands" internally */}
       <BrandBar />
-
-      {/* New Arrivals Section with smooth scroll anchor target */}
-      <ProductSection
-        id="new-arrivals"
-        title="NEW ARRIVALS"
-        products={NEW_ARRIVALS}
-        viewAllHref="/shop?sort=new-arrivals"
-        showDivider={true}
-      />
-
-      {/* Top Selling Section with smooth scroll anchor target */}
-      <ProductSection
-        id="top-selling"
-        title="TOP SELLING"
-        products={TOP_SELLING}
-        viewAllHref="/shop?sort=top-selling"
-        showDivider={false}
-      />
-
-      <DressStyleGrid />
-      <ReviewsSection />
+      <div className="space-y-4 sm:space-y-6">
+        <ProductSection
+          id="new-arrivals"
+          title="NEW ARRIVALS"
+          products={newArrivals}
+          viewAllHref="/shop?sort=newest"
+          showDivider={true}
+        />
+        <ProductSection
+          id="top-selling"
+          title="TOP SELLING"
+          products={topSelling}
+          viewAllHref="/shop?sort=popular"
+          showDivider={false}
+        />
+        <DressStyleGrid />
+        <ReviewsSection />
+      </div>
     </div>
   );
 }

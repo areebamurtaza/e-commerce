@@ -4,7 +4,12 @@
 import { revalidatePath } from 'next/cache';
 import { prisma, withDbRetry } from '@/lib/prisma';
 import { verifyAdmin } from '@/lib/admin-auth';
-import { productFormSchema, ProductFormValues } from '@/schemas/product';
+import {
+  productFormSchema,
+  ProductFormValues,
+  ProductImageFormValues,
+  ProductVariantFormValues,
+} from '@/schemas/product';
 import { DressStyle, Gender, Prisma } from '@prisma/client';
 import { ALL_TAXONOMY_CATEGORIES } from '@/constants/shop';
 
@@ -91,9 +96,15 @@ export interface AdminProductsResult {
   error?: string;
 }
 
-/* ==========================================================================
-   STOREFRONT READ QUERIES
-   ========================================================================== */
+function isDynamicServerError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  return (
+    ('digest' in err && (err as { digest?: string }).digest === 'DYNAMIC_SERVER_USAGE') ||
+    ('message' in err &&
+      typeof (err as { message?: string }).message === 'string' &&
+      (err as { message: string }).message.includes('Dynamic server usage'))
+  );
+}
 
 export async function getProducts(params: GetProductsParams = {}): Promise<GetProductsResult> {
   try {
@@ -118,7 +129,6 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
 
     const andConditions: Prisma.ProductWhereInput[] = [];
 
-    // Price Filtering
     if (minPrice !== undefined || maxPrice !== undefined) {
       andConditions.push({
         basePrice: {
@@ -128,7 +138,6 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
       });
     }
 
-    // Keyword Search
     if (query && query.trim() !== '') {
       const cleanQuery = query.trim();
       andConditions.push({
@@ -139,20 +148,15 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
       });
     }
 
-    // Gender / Department Filtering
     if (gender && String(gender).trim() !== '') {
       const rawGender = String(gender).trim().toUpperCase();
       if (['MEN', 'WOMEN', 'KIDS', 'UNISEX'].includes(rawGender)) {
         andConditions.push({
-          OR: [
-            { gender: rawGender as Gender },
-            { gender: Gender.UNISEX },
-          ],
+          OR: [{ gender: rawGender as Gender }, { gender: Gender.UNISEX }],
         });
       }
     }
 
-    // Subcategory / Apparel Type Filtering
     const targetCategory = category || type;
     if (targetCategory && targetCategory.trim() !== '') {
       const cleanCategory = targetCategory.trim().toLowerCase();
@@ -175,7 +179,6 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
       }
     }
 
-    // Dress Style Filter
     if (dressStyle) {
       andConditions.push({ dressStyle });
     }
@@ -221,6 +224,7 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
       },
     };
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_PRODUCTS_ERROR]:', error);
     return {
       success: false,
@@ -247,28 +251,18 @@ export async function getProductBySlugOrId(identifier: string) {
       });
     });
 
-    if (!product) {
-      return { success: false, error: 'Product not found.' };
-    }
-
+    if (!product) return { success: false, error: 'Product not found.' };
     return { success: true, data: product };
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_PRODUCT_DETAIL_ERROR]:', error);
     return { success: false, error: 'Failed to load product details.' };
   }
 }
 
-/* ==========================================================================
-   ADMIN MANAGEMENT ACTIONS
-   ========================================================================== */
-
-/**
- * Fetches and ensures all standard taxonomy categories exist in the database
- */
 export async function getAdminCategories() {
   try {
     return await withDbRetry(async () => {
-      // Ensure all standard categories exist in database
       await Promise.all(
         ALL_TAXONOMY_CATEGORIES.map(async (cat) => {
           return prisma.category.upsert({
@@ -287,6 +281,7 @@ export async function getAdminCategories() {
       return { success: true, categories };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_CATEGORIES_ERROR]:', error);
     return { success: false, categories: [] };
   }
@@ -298,116 +293,112 @@ export async function getAdminProducts(
   try {
     await verifyAdmin();
 
-    const {
-      search = '',
-      status = 'All',
-      category = 'All',
-      page = 1,
-      limit = 10,
-    } = params;
-
+    const { search = '', status = 'All', category = 'All', page = 1, limit = 10 } = params;
     const safePage = Math.max(1, page);
     const safeLimit = Math.max(1, limit);
     const skip = (safePage - 1) * safeLimit;
 
-    const where: Prisma.ProductWhereInput = {
-      AND: [
-        category !== 'All'
-          ? {
-              category: {
-                OR: [{ id: category }, { name: category }, { slug: category }],
-              },
-            }
-          : {},
-        search.trim()
-          ? {
-              OR: [
-                { title: { contains: search.trim(), mode: 'insensitive' } },
-                { slug: { contains: search.trim(), mode: 'insensitive' } },
-                {
-                  variants: {
-                    some: {
-                      sku: { contains: search.trim(), mode: 'insensitive' },
+    return await withDbRetry(async () => {
+      const where: Prisma.ProductWhereInput = {
+        AND: [
+          category !== 'All'
+            ? {
+                category: {
+                  OR: [{ id: category }, { name: category }, { slug: category }],
+                },
+              }
+            : {},
+          search.trim()
+            ? {
+                OR: [
+                  { title: { contains: search.trim(), mode: 'insensitive' } },
+                  { slug: { contains: search.trim(), mode: 'insensitive' } },
+                  {
+                    variants: {
+                      some: {
+                        sku: { contains: search.trim(), mode: 'insensitive' },
+                      },
                     },
                   },
-                },
-              ],
-            }
-          : {},
-      ],
-    };
+                ],
+              }
+            : {},
+        ],
+      };
 
-    const [allProductsRaw, categoriesCount] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          category: { select: { id: true, name: true } },
-          images: { orderBy: { isPrimary: 'desc' } },
-          variants: true,
-        },
-      }),
-      prisma.category.count(),
-    ]);
+      const [allProductsRaw, categoriesCount] = await Promise.all([
+        prisma.product.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            category: { select: { id: true, name: true } },
+            images: { orderBy: { isPrimary: 'desc' } },
+            variants: true,
+          },
+        }),
+        prisma.category.count(),
+      ]);
 
-    let totalStockUnits = 0;
-    let outOfStockCount = 0;
+      let totalStockUnits = 0;
+      let outOfStockCount = 0;
 
-    const mappedProducts: AdminProductItem[] = allProductsRaw.map((p) => {
-      const stockSum = p.variants.reduce((acc, v) => acc + v.stockQuantity, 0);
-      const isOutOfStock = stockSum <= 0;
-      const primaryImage = p.images[0]?.url || '/images/hero1.png';
-      const defaultSku = p.variants[0]?.sku || 'NO-SKU';
+      const mappedProducts: AdminProductItem[] = allProductsRaw.map((p) => {
+        const stockSum = p.variants.reduce((acc, v) => acc + v.stockQuantity, 0);
+        const isOutOfStock = stockSum <= 0;
+        const primaryImage = p.images[0]?.url || '/images/hero1.png';
+        const defaultSku = p.variants[0]?.sku || 'NO-SKU';
 
-      totalStockUnits += stockSum;
-      if (isOutOfStock) outOfStockCount++;
+        totalStockUnits += stockSum;
+        if (isOutOfStock) outOfStockCount++;
+
+        return {
+          id: p.id,
+          name: p.title,
+          slug: p.slug,
+          price: p.basePrice,
+          category: p.category.name,
+          categoryId: p.category.id,
+          gender: p.gender,
+          dressStyle: p.dressStyle,
+          stock: stockSum,
+          sku: defaultSku,
+          rating: p.rating,
+          reviewCount: p.reviewCount,
+          imageUrl: primaryImage,
+          status: isOutOfStock ? 'Out Of Stock' : 'Active',
+          isFeatured: p.isFeatured,
+          isNewArrival: p.isNewArrival,
+          createdAt: p.createdAt,
+        };
+      });
+
+      const filteredProducts =
+        status === 'All'
+          ? mappedProducts
+          : mappedProducts.filter((p) => p.status === status);
+
+      const total = filteredProducts.length;
+      const paginatedProducts = filteredProducts.slice(skip, skip + safeLimit);
 
       return {
-        id: p.id,
-        name: p.title,
-        slug: p.slug,
-        price: p.basePrice,
-        category: p.category.name,
-        categoryId: p.category.id,
-        gender: p.gender,
-        dressStyle: p.dressStyle,
-        stock: stockSum,
-        sku: defaultSku,
-        rating: p.rating,
-        reviewCount: p.reviewCount,
-        imageUrl: primaryImage,
-        status: isOutOfStock ? 'Out Of Stock' : 'Active',
-        isFeatured: p.isFeatured,
-        isNewArrival: p.isNewArrival,
-        createdAt: p.createdAt,
+        success: true,
+        products: paginatedProducts,
+        kpi: {
+          totalProducts: mappedProducts.length,
+          totalStockUnits,
+          outOfStockCount,
+          totalCategories: categoriesCount,
+        },
+        pagination: {
+          total,
+          page: safePage,
+          limit: safeLimit,
+          totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+        },
       };
     });
-
-    const filteredProducts =
-      status === 'All'
-        ? mappedProducts
-        : mappedProducts.filter((p) => p.status === status);
-
-    const total = filteredProducts.length;
-    const paginatedProducts = filteredProducts.slice(skip, skip + safeLimit);
-
-    return {
-      success: true,
-      products: paginatedProducts,
-      kpi: {
-        totalProducts: mappedProducts.length,
-        totalStockUnits,
-        outOfStockCount,
-        totalCategories: categoriesCount,
-      },
-      pagination: {
-        total,
-        page: safePage,
-        limit: safeLimit,
-        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
-      },
-    };
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_ADMIN_PRODUCTS_ERROR]:', error);
     return {
       success: false,
@@ -448,13 +439,13 @@ export async function createProduct(rawData: ProductFormValues) {
             isNewArrival: validated.isNewArrival,
             categoryId: validated.categoryId,
             images: {
-              create: validated.images.map((img) => ({
+              create: validated.images.map((img: ProductImageFormValues) => ({
                 url: img.url,
                 isPrimary: img.isPrimary,
               })),
             },
             variants: {
-              create: validated.variants.map((v) => ({
+              create: validated.variants.map((v: ProductVariantFormValues) => ({
                 sku: v.sku,
                 size: v.size,
                 colorName: v.colorName,
@@ -474,6 +465,7 @@ export async function createProduct(rawData: ProductFormValues) {
       return { success: true, data: newProduct };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_CREATE_PRODUCT_ERROR]:', error);
     return {
       success: false,
@@ -509,6 +501,7 @@ export async function deleteProduct(id: string) {
       return { success: true, message: 'Product deleted successfully.' };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_DELETE_PRODUCT_ERROR]:', error);
     return {
       success: false,

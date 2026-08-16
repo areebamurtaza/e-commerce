@@ -31,9 +31,9 @@ export default async function AdminDashboardPage() {
         <div className="rounded-[20px] border border-rose-200 bg-rose-50 p-6 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5" />
-            <h2 className="font-bold text-base">Dashboard Synchronization Error</h2>
+            <h2 className="text-base font-bold">Dashboard Synchronization Error</h2>
           </div>
-          <p className="text-xs mt-1 text-rose-600 dark:text-rose-400">
+          <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
             {response.error || 'Failed to establish database connection with analytics engine.'}
           </p>
         </div>
@@ -95,20 +95,20 @@ export default async function AdminDashboardPage() {
               E-COMMERCE DASHBOARD
             </h1>
           </div>
-          <p className="text-xs text-black/60 dark:text-zinc-400 mt-1">
+          <p className="mt-1 text-xs text-black/60 dark:text-zinc-400">
             Real-time storefront performance, revenue metrics, and customer analytics.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-[62px] border border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-1.5 text-xs text-black/70 dark:text-zinc-300 font-medium shadow-xs">
+          <div className="flex items-center gap-2 rounded-[62px] border border-black/10 bg-white px-4 py-1.5 text-xs font-medium text-black/70 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
             <Calendar className="h-3.5 w-3.5 text-black/40 dark:text-zinc-500" />
             <span>Audit Cycle 2026</span>
           </div>
           <Button
             asChild
             size="sm"
-            className="h-8.5 gap-1.5 bg-black dark:bg-white text-white dark:text-black hover:bg-black/80 dark:hover:bg-white/80 rounded-[62px] text-xs font-semibold px-5 shadow-xs"
+            className="h-8.5 gap-1.5 rounded-[62px] bg-black px-5 text-xs font-semibold text-white shadow-xs hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
           >
             <Link href="/admin/payments/transactions">
               <Download className="h-3.5 w-3.5" /> Export Ledger
@@ -126,7 +126,7 @@ export default async function AdminDashboardPage() {
           return (
             <Card
               key={card.title}
-              className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-xs p-5 space-y-2 hover:shadow-md transition-shadow"
+              className="space-y-2 rounded-[20px] border-black/10 bg-white p-5 shadow-xs transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-black/60 dark:text-zinc-400">
@@ -137,11 +137,11 @@ export default async function AdminDashboardPage() {
                 </div>
               </div>
 
-              <p className="text-2xl font-extrabold text-black dark:text-white font-integral">
+              <p className="font-integral text-2xl font-extrabold text-black dark:text-white">
                 {card.value}
               </p>
 
-              <div className="flex items-center justify-between text-[11px] pt-1">
+              <div className="flex items-center justify-between pt-1 text-[11px]">
                 <span
                   className={`font-semibold ${
                     isPositive
@@ -151,7 +151,7 @@ export default async function AdminDashboardPage() {
                 >
                   {card.change}
                 </span>
-                <span className="text-black/40 dark:text-zinc-500 font-medium">
+                <span className="font-medium text-black/40 dark:text-zinc-500">
                   {card.description}
                 </span>
               </div>

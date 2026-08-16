@@ -3,8 +3,8 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronRight, AlertTriangle } from 'lucide-react';
-import { getProducts } from '@/actions/product';
-import { DressStyle, Gender } from '@prisma/client';
+import { getProducts, ProductWithRelations } from '@/actions/product';
+import { DressStyle } from '@prisma/client';
 import { ProductCard, ProductCardData } from '@/components/home/product-card';
 import { ShopFilters } from '@/components/shop/shop-filters';
 import { ShopHeaderSort } from '@/components/shop/shop-header-sort';
@@ -28,6 +28,30 @@ interface ShopPageProps {
     sort?: string;
     page?: string;
   }>;
+}
+
+function mapProductToCardData(product: ProductWithRelations): ProductCardData {
+  const primaryImg =
+    product.images.find((img) => img.isPrimary)?.url ||
+    product.images[0]?.url ||
+    '/images/pd1.png';
+
+  return {
+    id: product.id,
+    title: product.title,
+    slug: product.slug,
+    price: product.basePrice,
+    basePrice: product.basePrice,
+    discount: product.discountPercentage,
+    discountPercentage: product.discountPercentage,
+    rating: product.rating,
+    reviewCount: product.reviewCount,
+    src: primaryImg,
+    image: primaryImg,
+    category: product.category?.name || 'Apparel',
+    dressStyle: product.dressStyle,
+    gender: product.gender,
+  };
 }
 
 export default async function ShopPage({ searchParams }: ShopPageProps) {
@@ -71,7 +95,8 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
     limit: 9,
   });
 
-  const products = result.success && result.data ? result.data.products : [];
+  const rawProducts = result.success && result.data ? result.data.products : [];
+  const products: ProductCardData[] = rawProducts.map(mapProductToCardData);
   const meta = result.data?.meta || { total: 0, page: 1, limit: 9, totalPages: 1 };
 
   // 4. Derive Page Heading
@@ -156,24 +181,12 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
               </Suspense>
             </div>
 
-            {/* Product Cards Grid */}
+            {/* Product Cards */}
             {products.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
-                {products.map((product) => {
-                  const cardData: ProductCardData = {
-                    id: product.id,
-                    title: product.title,
-                    slug: product.slug,
-                    price: product.basePrice,
-                    discount: product.discountPercentage,
-                    rating: product.rating,
-                    src: product.images[0]?.url || '/images/m1.png',
-                    image: product.images[0]?.url || '/images/m1.png',
-                    category: product.category?.name,
-                  };
-
-                  return <ProductCard key={product.id} product={cardData} />;
-                })}
+                {products.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
               </div>
             ) : (
               <div className="w-full bg-[#F0F0F0]/50 dark:bg-zinc-900/50 rounded-[20px] border border-black/10 dark:border-zinc-800 py-16 px-6 flex flex-col items-center justify-center text-center gap-4 my-4">

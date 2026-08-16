@@ -1,5 +1,4 @@
-'use client';
-
+// components/home/product-section.tsx
 import Link from 'next/link';
 import { Product } from '@/types/product';
 import { ProductCard } from '@/components/home/product-card';
@@ -19,46 +18,56 @@ export function ProductSection({
   viewAllHref = '/shop',
   showDivider = true,
 }: ProductSectionProps) {
+  const headingId = id ? `${id}-heading` : `${title.toLowerCase().replace(/\s+/g, '-')}-heading`;
+
   return (
     <section
       id={id}
-      className="w-full bg-white py-8 sm:py-16 xl:py-18 scroll-mt-16 lg:scroll-mt-24"
+      aria-labelledby={headingId}
+      className="w-full bg-white dark:bg-black py-8 sm:py-16 xl:py-18 scroll-mt-16 lg:scroll-mt-24 transition-colors"
     >
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px]">
         {/* Section Heading */}
-        <h2 className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[38px] sm:leading-[48px] xl:leading-[58px] text-black text-center uppercase tracking-tight mb-8 sm:mb-12 xl:mb-14">
+        <h2
+          id={headingId}
+          className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[38px] sm:leading-[48px] xl:leading-[58px] text-black dark:text-white text-center uppercase tracking-tight mb-8 sm:mb-12 xl:mb-14"
+        >
           {title}
         </h2>
 
-        {/* 
-          Mobile vs Desktop Grid:
-          Mobile (< md): Exactly 2 items loaded in a single 2-column row.
-          Desktop (>= md): All items loaded in a 4-column grid.
-        */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-5 xl:gap-[20px]">
-          {products.map((product, index) => (
-            <div
-              key={product.id}
-              className={index >= 2 ? 'hidden md:block w-full' : 'w-full'}
-            >
-              <ProductCard product={product} />
-            </div>
-          ))}
-        </div>
+        {/* Product Grid */}
+        {products.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-5 xl:gap-[20px]">
+            {products.map((product, index) => (
+              <div
+                key={product.id}
+                className={index >= 2 ? 'hidden md:block w-full' : 'w-full'}
+              >
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="py-12 text-center text-sm font-satoshi text-black/50 dark:text-zinc-500">
+            No products available in this collection.
+          </div>
+        )}
 
         {/* View All CTA Button */}
-        <div className="flex justify-center mt-6 sm:mt-12">
-          <Link
-            href={viewAllHref}
-            className="w-full sm:w-[218px] h-[46px] sm:h-[52px] border border-black/10 rounded-[62px] font-satoshi font-medium text-[14px] sm:text-[16px] leading-[22px] text-black flex items-center justify-center hover:bg-black hover:text-white transition-all duration-200 active:scale-95"
-          >
-            View All
-          </Link>
-        </div>
+        {products.length > 0 && viewAllHref && (
+          <div className="flex justify-center mt-6 sm:mt-12">
+            <Link
+              href={viewAllHref}
+              className="w-full sm:w-[218px] h-[46px] sm:h-[52px] border border-black/10 dark:border-zinc-800 rounded-[62px] font-satoshi font-medium text-[14px] sm:text-[16px] leading-[22px] text-black dark:text-white bg-white dark:bg-black hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black flex items-center justify-center transition-all duration-200 active:scale-95 shadow-xs"
+            >
+              View All
+            </Link>
+          </div>
+        )}
 
         {/* Section Divider */}
         {showDivider && (
-          <div className="w-full h-[1px] bg-black/10 mt-8 sm:mt-16 xl:mt-20" />
+          <div className="w-full h-[1px] bg-black/10 dark:bg-zinc-800 mt-8 sm:mt-16 xl:mt-20" />
         )}
       </div>
     </section>
