@@ -12,6 +12,7 @@ import {
 } from '@/schemas/product';
 import { DressStyle, Gender, Prisma } from '@prisma/client';
 import { ALL_TAXONOMY_CATEGORIES } from '@/constants/shop';
+import { DB_TIMEOUT_CONFIG } from '@/lib/constants';
 
 // ============================================================================
 // DOMAIN TYPES & INTERFACES
@@ -441,7 +442,7 @@ export async function getAdminProducts(
 }
 
 // ============================================================================
-// ADMIN PRODUCT MUTATIONS (ATOMIC TRANSACTIONS)
+// ADMIN PRODUCT MUTATIONS (OPTIMIZED CONCURRENT TRANSACTIONS)
 // ============================================================================
 
 export async function createProduct(
@@ -461,43 +462,49 @@ export async function createProduct(
         return { success: false, error: 'A product with this URL slug already exists.' };
       }
 
-      const newProduct = await prisma.$transaction(async (tx) => {
-        return await tx.product.create({
-          data: {
-            title: validated.title,
-            slug: validated.slug,
-            description: validated.description,
-            basePrice: validated.basePrice,
-            discountPercentage: validated.discountPercentage,
-            gender: validated.gender as Gender,
-            dressStyle: validated.dressStyle,
-            isFeatured: validated.isFeatured,
-            isNewArrival: validated.isNewArrival,
-            categoryId: validated.categoryId,
-            images: {
-              create: validated.images.map((img: ProductImageFormValues) => ({
-                url: img.url,
-                isPrimary: img.isPrimary,
-              })),
+      const newProduct = await prisma.$transaction(
+        async (tx) => {
+          return await tx.product.create({
+            data: {
+              title: validated.title,
+              slug: validated.slug,
+              description: validated.description,
+              basePrice: validated.basePrice,
+              discountPercentage: validated.discountPercentage,
+              gender: validated.gender as Gender,
+              dressStyle: validated.dressStyle,
+              isFeatured: validated.isFeatured,
+              isNewArrival: validated.isNewArrival,
+              categoryId: validated.categoryId,
+              images: {
+                create: validated.images.map((img: ProductImageFormValues) => ({
+                  url: img.url,
+                  isPrimary: img.isPrimary,
+                })),
+              },
+              variants: {
+                create: validated.variants.map((v: ProductVariantFormValues) => ({
+                  sku: v.sku,
+                  size: v.size,
+                  colorName: v.colorName,
+                  colorHex: v.colorHex,
+                  priceOffset: v.priceOffset,
+                  stockQuantity: v.stockQuantity,
+                })),
+              },
             },
-            variants: {
-              create: validated.variants.map((v: ProductVariantFormValues) => ({
-                sku: v.sku,
-                size: v.size,
-                colorName: v.colorName,
-                colorHex: v.colorHex,
-                priceOffset: v.priceOffset,
-                stockQuantity: v.stockQuantity,
-              })),
+            include: {
+              category: true,
+              images: { orderBy: { isPrimary: 'desc' } },
+              variants: { orderBy: { size: 'asc' } },
             },
-          },
-          include: {
-            category: true,
-            images: { orderBy: { isPrimary: 'desc' } },
-            variants: { orderBy: { size: 'asc' } },
-          },
-        });
-      });
+          });
+        },
+        {
+          maxWait: 5000,
+          timeout: 20000,
+        }
+      );
 
       revalidatePath('/admin/products');
       revalidatePath('/shop');
@@ -550,98 +557,111 @@ export async function updateProduct(
         }
       }
 
-      const updatedProduct = await prisma.$transaction(async (tx) => {
-        // 1. Update Product Scalar Fields
-        await tx.product.update({
-          where: { id: productId },
-          data: {
-            title: validated.title,
-            slug: validated.slug,
-            description: validated.description,
-            basePrice: validated.basePrice,
-            discountPercentage: validated.discountPercentage,
-            gender: validated.gender as Gender,
-            dressStyle: validated.dressStyle,
-            isFeatured: validated.isFeatured,
-            isNewArrival: validated.isNewArrival,
-            categoryId: validated.categoryId,
-          },
-        });
+      // Execute transaction with 20-second timeout to handle latency
+      const updatedProduct = await prisma.$transaction(
+        async (tx) => {
+          // 1. Update Product Scalar Fields
+          await tx.product.update({
+            where: { id: productId },
+            data: {
+              title: validated.title,
+              slug: validated.slug,
+              description: validated.description,
+              basePrice: validated.basePrice,
+              discountPercentage: validated.discountPercentage,
+              gender: validated.gender as Gender,
+              dressStyle: validated.dressStyle,
+              isFeatured: validated.isFeatured,
+              isNewArrival: validated.isNewArrival,
+              categoryId: validated.categoryId,
+            },
+          });
 
-        // 2. Reconcile Gallery Images
-        await tx.productImage.deleteMany({
-          where: { productId },
-        });
+          // 2. Reconcile Gallery Images
+          await tx.productImage.deleteMany({
+            where: { productId },
+          });
 
-        await tx.productImage.createMany({
-          data: validated.images.map((img) => ({
-            productId,
-            url: img.url,
-            isPrimary: img.isPrimary,
-          })),
-        });
+          await tx.productImage.createMany({
+            data: validated.images.map((img) => ({
+              productId,
+              url: img.url,
+              isPrimary: img.isPrimary,
+            })),
+          });
 
-        // 3. Reconcile Variants
-        const incomingVariantIds = validated.variants
-          .map((v) => v.id)
-          .filter((id): id is string => Boolean(id));
+          // 3. Reconcile Variants
+          const incomingVariantIds = validated.variants
+            .map((v) => v.id)
+            .filter((id): id is string => Boolean(id));
 
-        await tx.productVariant.deleteMany({
-          where: {
-            productId,
-            id: { notIn: incomingVariantIds },
-            orderItems: { none: {} },
-          },
-        });
-
-        await tx.productVariant.updateMany({
-          where: {
-            productId,
-            id: { notIn: incomingVariantIds },
-            orderItems: { some: {} },
-          },
-          data: {
-            stockQuantity: 0,
-          },
-        });
-
-        for (const variant of validated.variants) {
-          if (variant.id) {
-            await tx.productVariant.update({
-              where: { id: variant.id },
-              data: {
-                sku: variant.sku,
-                size: variant.size,
-                colorName: variant.colorName,
-                colorHex: variant.colorHex,
-                priceOffset: variant.priceOffset,
-                stockQuantity: variant.stockQuantity,
-              },
-            });
-          } else {
-            await tx.productVariant.create({
-              data: {
+          // Prune removed variants safely
+          await Promise.all([
+            tx.productVariant.deleteMany({
+              where: {
                 productId,
-                sku: variant.sku,
-                size: variant.size,
-                colorName: variant.colorName,
-                colorHex: variant.colorHex,
-                priceOffset: variant.priceOffset,
-                stockQuantity: variant.stockQuantity,
+                id: { notIn: incomingVariantIds },
+                orderItems: { none: {} },
               },
-            });
-          }
-        }
+            }),
+            tx.productVariant.updateMany({
+              where: {
+                productId,
+                id: { notIn: incomingVariantIds },
+                orderItems: { some: {} },
+              },
+              data: {
+                stockQuantity: 0,
+              },
+            }),
+          ]);
 
-        return await tx.product.findUniqueOrThrow({
-          where: { id: productId },
-          include: {
-            category: true,
-            images: { orderBy: { isPrimary: 'desc' } },
-            variants: { orderBy: { size: 'asc' } },
-          },
-        });
-      });
+          // Concurrently upsert/create all variants in parallel
+          await Promise.all(
+            validated.variants.map((variant) => {
+              if (variant.id) {
+                return tx.productVariant.update({
+                  where: { id: variant.id },
+                  data: {
+                    sku: variant.sku,
+                    size: variant.size,
+                    colorName: variant.colorName,
+                    colorHex: variant.colorHex,
+                    priceOffset: variant.priceOffset,
+                    stockQuantity: variant.stockQuantity,
+                  },
+                });
+              } else {
+                return tx.productVariant.create({
+                  data: {
+                    productId,
+                    sku: variant.sku,
+                    size: variant.size,
+                    colorName: variant.colorName,
+                    colorHex: variant.colorHex,
+                    priceOffset: variant.priceOffset,
+                    stockQuantity: variant.stockQuantity,
+                  },
+                });
+              }
+            })
+          );
+
+          // 4. Return refreshed relational product
+          return await tx.product.findUniqueOrThrow({
+            where: { id: productId },
+            include: {
+              category: true,
+              images: { orderBy: { isPrimary: 'desc' } },
+              variants: { orderBy: { size: 'asc' } },
+            },
+          });
+        },
+        {
+          maxWait: 5000,
+          timeout: 20000, // 20-second threshold for remote serverless pools
+        }
+      );
 
       revalidatePath('/admin/products');
       revalidatePath(`/admin/products/${productId}`);
