@@ -4,67 +4,87 @@ import { prisma, withDbRetry } from '@/lib/prisma';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   try {
-    // Authorize with CRON_SECRET header to prevent unauthorized hits
+    // 1. Validate Cron Secret Authorization Header
     const authHeader = req.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized cron trigger' }, { status: 401 });
+    if (
+      process.env.NODE_ENV === 'production' &&
+      (!cronSecret || authHeader !== `Bearer ${cronSecret}`)
+    ) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // 2. Identify expired PENDING orders
     const now = new Date();
 
-    const expiredOrders = await withDbRetry(async () => {
-      // Find orders pending payment where 30-minute timer passed
-      const orders = await prisma.order.findMany({
+    return await withDbRetry(async () => {
+      const expiredOrders = await prisma.order.findMany({
         where: {
           status: OrderStatus.PENDING,
           paymentStatus: PaymentStatus.PENDING,
-          expiresAt: { lte: now },
+          expiresAt: {
+            not: null,
+            lte: now,
+          },
         },
         select: { id: true, orderNumber: true },
       });
 
-      if (orders.length === 0) return [];
+      if (expiredOrders.length === 0) {
+        return NextResponse.json({
+          success: true,
+          cleanedOrdersCount: 0,
+          orders: [],
+          message: 'No expired orders found.',
+        });
+      }
 
-      const orderIds = orders.map((o) => o.id);
+      const expiredOrderIds = expiredOrders.map((o) => o.id);
 
-      await prisma.$transaction([
-        prisma.order.updateMany({
-          where: { id: { in: orderIds } },
-          data: {
-            status: OrderStatus.CANCELLED,
-            paymentStatus: PaymentStatus.FAILED,
-          },
-        }),
-        prisma.payment.updateMany({
-          where: { orderId: { in: orderIds } },
-          data: {
-            status: PaymentStatus.FAILED,
-          },
-        }),
-      ]);
+      // 3. Batch cancel expired orders
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.order.updateMany({
+            where: { id: { in: expiredOrderIds } },
+            data: {
+              status: OrderStatus.CANCELLED,
+              paymentStatus: PaymentStatus.FAILED,
+            },
+          });
 
-      return orders;
-    });
+          await tx.payment.updateMany({
+            where: { orderId: { in: expiredOrderIds } },
+            data: {
+              status: PaymentStatus.FAILED,
+            },
+          });
+        },
+        { timeout: 15000 }
+      );
 
-    if (expiredOrders.length > 0) {
       revalidatePath('/admin/orders');
-      revalidatePath('/admin/payments');
       revalidatePath('/shop');
-    }
 
-    return NextResponse.json({
-      success: true,
-      cleanedOrdersCount: expiredOrders.length,
-      orders: expiredOrders.map((o) => o.orderNumber),
+      return NextResponse.json({
+        success: true,
+        cleanedOrdersCount: expiredOrders.length,
+        orders: expiredOrders.map((o) => o.orderNumber),
+        message: `Successfully cancelled ${expiredOrders.length} expired orders.`,
+      });
     });
   } catch (error) {
     console.error('[CRON_CLEANUP_EXPIRED_ORDERS_ERROR]:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to cleanup expired orders' },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Internal Server Error',
+      },
       { status: 500 }
     );
   }

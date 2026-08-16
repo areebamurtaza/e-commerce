@@ -2,22 +2,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Clock, AlertTriangle } from 'lucide-react';
+import { Timer, AlertTriangle } from 'lucide-react';
 
 interface ReservationTimerProps {
-  expiresAt: string | Date;
+  expiresAt: string;
   onExpire?: () => void;
 }
 
 export function ReservationTimer({ expiresAt, onExpire }: ReservationTimerProps) {
-  const [timeLeft, setTimeLeft] = useState<{ minutes: number; seconds: number } | null>(null);
-  const [isExpired, setIsExpired] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<{ minutes: number; seconds: number } | null>(
+    null
+  );
+  const [isExpired, setIsExpired] = useState<boolean>(false);
 
   useEffect(() => {
-    const target = new Date(expiresAt).getTime();
-
-    const calculateTime = () => {
-      const difference = target - Date.now();
+    const calculateTimeRemaining = () => {
+      const difference = new Date(expiresAt).getTime() - new Date().getTime();
 
       if (difference <= 0) {
         setIsExpired(true);
@@ -26,36 +26,50 @@ export function ReservationTimer({ expiresAt, onExpire }: ReservationTimerProps)
         return;
       }
 
-      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+      const minutes = Math.floor((difference / 1000 / 60) % 60);
+      const seconds = Math.floor((difference / 1000) % 60);
       setTimeLeft({ minutes, seconds });
     };
 
-    calculateTime();
-    const interval = setInterval(calculateTime, 1000);
+    calculateTimeRemaining();
+    const interval = setInterval(calculateTimeRemaining, 1000);
+
     return () => clearInterval(interval);
   }, [expiresAt, onExpire]);
 
   if (!timeLeft) return null;
 
-  if (isExpired) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span>Your 30-minute reservation has expired. Please refresh checkout to reserve items.</span>
-      </div>
-    );
-  }
+  const isUrgent = timeLeft.minutes < 5 && !isExpired;
 
   return (
-    <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300 font-satoshi">
+    <div
+      role="timer"
+      aria-live="polite"
+      className={`flex items-center justify-between rounded-[16px] p-3.5 sm:p-4 text-xs sm:text-sm font-medium transition-all ${
+        isExpired
+          ? 'bg-rose-50 border border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300'
+          : isUrgent
+          ? 'bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300 animate-pulse'
+          : 'bg-zinc-100 dark:bg-zinc-800/80 border border-black/10 dark:border-zinc-700 text-black/80 dark:text-zinc-200'
+      }`}
+    >
       <div className="flex items-center gap-2">
-        <Clock className="h-4 w-4 shrink-0 text-amber-600 animate-pulse" />
-        <span className="font-medium">Items reserved for checkout:</span>
+        {isExpired || isUrgent ? (
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        ) : (
+          <Timer className="h-4 w-4 shrink-0 text-black/60 dark:text-zinc-400" />
+        )}
+        <span>
+          {isExpired
+            ? 'Your 30-minute stock reservation has expired.'
+            : 'Items in your cart are reserved for:'}
+        </span>
       </div>
-      <span className="font-mono font-bold text-sm tracking-wider">
-        {String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}
-      </span>
+
+      <div className="font-mono font-bold text-sm tracking-wider">
+        {String(timeLeft.minutes).padStart(2, '0')}:
+        {String(timeLeft.seconds).padStart(2, '0')}
+      </div>
     </div>
   );
 }

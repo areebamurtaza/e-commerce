@@ -1,238 +1,212 @@
 // actions/user.ts
 'use server';
 
-import { prisma } from '@/lib/prisma';
-import { currentUser } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
+import { prisma, withDbRetry } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
-import type { Address, User } from '@prisma/client';
-import {
-  addressSchema,
-  profileSchema,
-  AddressFormValues,
-  ProfileFormValues,
-} from '@/schemas/account';
+import { z } from 'zod';
+import type { Address } from '@prisma/client';
 
-export interface ActionResponse<T = void> {
+export interface ActionResponse<T = unknown> {
   success: boolean;
   data?: T;
-  message?: string;
   error?: string;
+  message?: string;
 }
 
-/**
- * Validates the active Clerk authentication session and synchronizes
- * the user record with Neon PostgreSQL, explicitly providing the required `id`.
- */
-async function getOrCreateDbUser(): Promise<User> {
-  const clerkUser = await currentUser();
-  if (!clerkUser) {
-    throw new Error('Unauthorized: Active authentication session required.');
-  }
+const addressSchema = z.object({
+  label: z.string().trim().min(1, 'Address label is required (e.g. Home, Office)'),
+  street: z.string().trim().min(5, 'Street address must be at least 5 characters'),
+  city: z.string().trim().min(2, 'City is required'),
+  state: z.string().trim().min(2, 'State / Province is required'),
+  postalCode: z.string().trim().min(2, 'Postal code is required'),
+  country: z.string().trim().min(2, 'Country is required'),
+  isDefault: z.boolean(),
+});
 
-  const primaryEmail = clerkUser.emailAddresses[0]?.emailAddress;
-  if (!primaryEmail) {
-    throw new Error('Unauthorized: User account has no verified email address.');
-  }
-
-  const fullName =
-    `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() ||
-    clerkUser.username ||
-    'Valued Customer';
-
-  const dbUser = await prisma.user.upsert({
-    where: { email: primaryEmail },
-    update: {
-      name: fullName,
-    },
-    create: {
-      id: clerkUser.id,
-      email: primaryEmail,
-      name: fullName,
-    },
-  });
-
-  return dbUser;
-}
+export type AddressFormValues = z.infer<typeof addressSchema>;
 
 /**
- * Updates the authenticated user's profile information.
- */
-export async function updateUserProfile(
-  data: ProfileFormValues
-): Promise<ActionResponse<User>> {
-  try {
-    const validated = profileSchema.parse(data);
-    const dbUser = await getOrCreateDbUser();
-
-    const updatedUser = await prisma.user.update({
-      where: { id: dbUser.id },
-      data: {
-        name: validated.fullName,
-      },
-    });
-
-    revalidatePath('/account');
-    return {
-      success: true,
-      data: updatedUser,
-      message: 'Profile details updated successfully.',
-    };
-  } catch (error) {
-    console.error('[ACTIONS_UPDATE_PROFILE_ERROR]:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update profile.',
-    };
-  }
-}
-
-/**
- * Retrieves all saved shipping addresses for the authenticated user.
+ * Retrieves all saved shipping addresses for the authenticated user
  */
 export async function getUserAddresses(): Promise<ActionResponse<Address[]>> {
   try {
-    const dbUser = await getOrCreateDbUser();
+    const { userId } = await auth();
 
-    const addresses = await prisma.address.findMany({
-      where: { userId: dbUser.id },
-      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    if (!userId) {
+      return { success: false, data: [], error: 'Authentication required.' };
+    }
+
+    return await withDbRetry(async () => {
+      const addresses = await prisma.address.findMany({
+        where: { userId },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      });
+
+      return { success: true, data: addresses };
     });
-
-    return {
-      success: true,
-      data: addresses,
-    };
   } catch (error) {
     console.error('[ACTIONS_GET_USER_ADDRESSES_ERROR]:', error);
-    return {
-      success: false,
-      error: 'Failed to retrieve saved addresses from the database.',
-    };
+    return { success: false, data: [], error: 'Failed to retrieve saved addresses.' };
   }
 }
 
 /**
- * Atomically creates a new address record.
- * Unsets any prior default flag if the new address is marked as default.
+ * Adds a new address to the user's account
  */
-export async function createUserAddress(
-  data: AddressFormValues
-): Promise<ActionResponse<Address>> {
+export async function addUserAddress(input: AddressFormValues): Promise<ActionResponse<Address>> {
   try {
-    const validated = addressSchema.parse(data);
-    const dbUser = await getOrCreateDbUser();
+    const { userId } = await auth();
+    const clerkUser = await currentUser();
 
-    const newAddress = await prisma.$transaction(async (tx) => {
-      const existingAddressCount = await tx.address.count({
-        where: { userId: dbUser.id },
-      });
+    if (!userId) {
+      return { success: false, error: 'Authentication required.' };
+    }
 
-      const isFirstAddress = existingAddressCount === 0;
-      const shouldBeDefault = validated.isDefault || isFirstAddress;
+    const validated = addressSchema.parse(input);
 
-      if (shouldBeDefault && !isFirstAddress) {
-        await tx.address.updateMany({
-          where: { userId: dbUser.id, isDefault: true },
-          data: { isDefault: false },
-        });
-      }
-
-      return await tx.address.create({
-        data: {
-          userId: dbUser.id,
-          label: validated.label,
-          street: validated.street,
-          city: validated.city,
-          state: validated.state,
-          postalCode: validated.postalCode,
-          country: validated.country,
-          isDefault: shouldBeDefault,
+    return await withDbRetry(async () => {
+      const userRecord = await prisma.user.upsert({
+        where: { id: userId },
+        update: {},
+        create: {
+          id: userId,
+          email: clerkUser?.primaryEmailAddress?.emailAddress || `${userId}@clerk.user`,
+          name: clerkUser?.fullName || clerkUser?.firstName || 'Customer',
         },
       });
+
+      const newAddress = await prisma.$transaction(async (tx) => {
+        if (validated.isDefault) {
+          await tx.address.updateMany({
+            where: { userId: userRecord.id },
+            data: { isDefault: false },
+          });
+        }
+
+        const count = await tx.address.count({ where: { userId: userRecord.id } });
+        const shouldBeDefault = validated.isDefault || count === 0;
+
+        return await tx.address.create({
+          data: {
+            userId: userRecord.id,
+            label: validated.label,
+            street: validated.street,
+            city: validated.city,
+            state: validated.state,
+            postalCode: validated.postalCode,
+            country: validated.country,
+            isDefault: shouldBeDefault,
+          },
+        });
+      });
+
+      revalidatePath('/account');
+      return { success: true, data: newAddress, message: 'Address saved successfully.' };
     });
-
-    revalidatePath('/account');
-    revalidatePath('/checkout');
-
-    return {
-      success: true,
-      data: newAddress,
-      message: 'Shipping address added successfully.',
-    };
   } catch (error) {
-    console.error('[ACTIONS_CREATE_ADDRESS_ERROR]:', error);
+    console.error('[ACTIONS_ADD_USER_ADDRESS_ERROR]:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to save address.',
+      error: error instanceof Error ? error.message : 'Failed to add address.',
     };
   }
 }
 
 /**
- * Sets an address as the default shipping location.
+ * Sets a specific address as the primary default
  */
-export async function setDefaultUserAddress(
-  addressId: string
-): Promise<ActionResponse<void>> {
+export async function setDefaultUserAddress(addressId: string): Promise<ActionResponse> {
   try {
-    const dbUser = await getOrCreateDbUser();
+    const { userId } = await auth();
 
-    await prisma.$transaction(async (tx) => {
-      await tx.address.updateMany({
-        where: { userId: dbUser.id, isDefault: true },
-        data: { isDefault: false },
-      });
+    if (!userId) {
+      return { success: false, error: 'Authentication required.' };
+    }
 
-      await tx.address.update({
-        where: { id: addressId, userId: dbUser.id },
-        data: { isDefault: true },
-      });
+    return await withDbRetry(async () => {
+      await prisma.$transaction([
+        prisma.address.updateMany({
+          where: { userId },
+          data: { isDefault: false },
+        }),
+        prisma.address.update({
+          where: { id: addressId, userId },
+          data: { isDefault: true },
+        }),
+      ]);
+
+      revalidatePath('/account');
+      return { success: true, message: 'Default address updated.' };
     });
-
-    revalidatePath('/account');
-    revalidatePath('/checkout');
-
-    return {
-      success: true,
-      message: 'Default address updated.',
-    };
   } catch (error) {
     console.error('[ACTIONS_SET_DEFAULT_ADDRESS_ERROR]:', error);
-    return {
-      success: false,
-      error: 'Failed to update default address.',
-    };
+    return { success: false, error: 'Failed to set default address.' };
   }
 }
 
 /**
- * Deletes an address record belonging to the authenticated user.
+ * Removes a saved address
  */
-export async function deleteUserAddress(
-  addressId: string
-): Promise<ActionResponse<void>> {
+export async function deleteUserAddress(addressId: string): Promise<ActionResponse> {
   try {
-    const dbUser = await getOrCreateDbUser();
+    const { userId } = await auth();
 
-    await prisma.address.delete({
-      where: {
-        id: addressId,
-        userId: dbUser.id,
-      },
+    if (!userId) {
+      return { success: false, error: 'Authentication required.' };
+    }
+
+    return await withDbRetry(async () => {
+      await prisma.address.delete({
+        where: { id: addressId, userId },
+      });
+
+      revalidatePath('/account');
+      return { success: true, message: 'Address deleted.' };
     });
-
-    revalidatePath('/account');
-    revalidatePath('/checkout');
-
-    return {
-      success: true,
-      message: 'Address removed successfully.',
-    };
   } catch (error) {
-    console.error('[ACTIONS_DELETE_ADDRESS_ERROR]:', error);
-    return {
-      success: false,
-      error: 'Failed to delete address.',
-    };
+    console.error('[ACTIONS_DELETE_USER_ADDRESS_ERROR]:', error);
+    return { success: false, error: 'Failed to delete address.' };
+  }
+}
+
+/**
+ * Updates user profile name
+ */
+export async function updateUserProfile({
+  fullName,
+}: {
+  fullName: string;
+}): Promise<ActionResponse> {
+  try {
+    const { userId } = await auth();
+    const clerkUser = await currentUser();
+
+    if (!userId) {
+      return { success: false, error: 'Authentication required.' };
+    }
+
+    const cleanName = fullName.trim();
+    if (cleanName.length < 2) {
+      return { success: false, error: 'Name must be at least 2 characters.' };
+    }
+
+    return await withDbRetry(async () => {
+      await prisma.user.upsert({
+        where: { id: userId },
+        update: { name: cleanName },
+        create: {
+          id: userId,
+          email: clerkUser?.primaryEmailAddress?.emailAddress || `${userId}@clerk.user`,
+          name: cleanName,
+        },
+      });
+
+      revalidatePath('/account');
+      return { success: true, message: 'Profile updated successfully.' };
+    });
+  } catch (error) {
+    console.error('[ACTIONS_UPDATE_USER_PROFILE_ERROR]:', error);
+    return { success: false, error: 'Failed to update profile.' };
   }
 }

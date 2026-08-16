@@ -3,10 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import Stripe from 'stripe';
 import { prisma, withDbRetry } from '@/lib/prisma';
+import { ORDER_CONFIG } from '@/lib/constants';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
+
+// Extends Serverless execution limit for webhook processing
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,8 +18,11 @@ export async function POST(req: NextRequest) {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
     if (!webhookSecret || !stripeSecretKey) {
-      console.error('[STRIPE_WEBHOOK_ERROR]: Missing Stripe environment credentials');
-      return NextResponse.json({ error: 'Webhook configuration error' }, { status: 500 });
+      console.error('[STRIPE_WEBHOOK_CONFIG_ERROR]: Missing Stripe credentials');
+      return NextResponse.json(
+        { error: 'Webhook configuration error' },
+        { status: 500 }
+      );
     }
 
     const rawBody = await req.text();
@@ -24,7 +31,10 @@ export async function POST(req: NextRequest) {
 
     if (!signature) {
       console.error('[STRIPE_WEBHOOK_ERROR]: Missing stripe-signature header');
-      return NextResponse.json({ error: 'Missing stripe signature' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Missing stripe signature' },
+        { status: 400 }
+      );
     }
 
     const stripe = new Stripe(stripeSecretKey, {
@@ -37,24 +47,36 @@ export async function POST(req: NextRequest) {
     try {
       event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
     } catch (err) {
-      console.error('[STRIPE_WEBHOOK_VERIFY_ERROR]:', err instanceof Error ? err.message : err);
-      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
+      console.error(
+        '[STRIPE_WEBHOOK_VERIFY_ERROR]:',
+        err instanceof Error ? err.message : err
+      );
+      return NextResponse.json(
+        { error: 'Invalid webhook signature' },
+        { status: 400 }
+      );
     }
 
-    // 1. Payment Succeeded -> Reconcile Order & Deduct Variant Stock
+    // 1. Payment Succeeded -> Reconcile Order & Deduct Inventory
     if (event.type === 'payment_intent.succeeded') {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       const orderId = paymentIntent.metadata?.orderId;
 
       if (orderId) {
         await withDbRetry(async () => {
-          const order = await prisma.order.findUnique({
-            where: { id: orderId },
-            include: { items: true },
-          });
+          await prisma.$transaction(
+            async (tx) => {
+              const order = await tx.order.findUnique({
+                where: { id: orderId },
+                include: { items: true },
+              });
 
-          if (order && order.paymentStatus !== PaymentStatus.SUCCEEDED) {
-            await prisma.$transaction(async (tx) => {
+              // Idempotency check: Exit if already processed
+              if (!order || order.paymentStatus === PaymentStatus.SUCCEEDED) {
+                return;
+              }
+
+              // Deduct stock
               for (const item of order.items) {
                 const variant = await tx.productVariant.findUnique({
                   where: { id: item.variantId },
@@ -72,9 +94,15 @@ export async function POST(req: NextRequest) {
                 }
               }
 
-              const fee = Number((order.total * 0.029 + 0.3).toFixed(2));
+              const fee = Number(
+                (
+                  order.total * ORDER_CONFIG.STRIPE_FEE_PERCENT +
+                  ORDER_CONFIG.STRIPE_FEE_FIXED
+                ).toFixed(2)
+              );
               const netAmount = Number((order.total - fee).toFixed(2));
 
+              // Settle Order Status and release reservation lock
               await tx.order.update({
                 where: { id: orderId },
                 data: {
@@ -84,21 +112,32 @@ export async function POST(req: NextRequest) {
                 },
               });
 
-              await tx.payment.updateMany({
+              // Settle Payment Record
+              await tx.payment.upsert({
                 where: { orderId },
-                data: {
+                update: {
                   status: PaymentStatus.SUCCEEDED,
                   stripePaymentIntentId: paymentIntent.id,
                   fee,
                   netAmount,
                 },
+                create: {
+                  orderId,
+                  status: PaymentStatus.SUCCEEDED,
+                  stripePaymentIntentId: paymentIntent.id,
+                  amount: order.total,
+                  fee,
+                  netAmount,
+                },
               });
-            });
-          }
+            },
+            { timeout: 15000 }
+          );
         });
 
         revalidatePath('/admin/orders');
         revalidatePath('/admin/payments');
+        revalidatePath(`/orders/${orderId}`);
         revalidatePath('/shop');
       }
     }
@@ -120,13 +159,26 @@ export async function POST(req: NextRequest) {
               paymentStatus: PaymentStatus.FAILED,
             },
           });
+
+          await prisma.payment.updateMany({
+            where: { orderId, status: PaymentStatus.PENDING },
+            data: {
+              status: PaymentStatus.FAILED,
+              stripePaymentIntentId: paymentIntent.id,
+            },
+          });
         });
+
+        revalidatePath('/admin/orders');
       }
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error('[STRIPE_WEBHOOK_HANDLER_ERROR]:', error);
-    return NextResponse.json({ error: 'Internal webhook error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal webhook error' },
+      { status: 500 }
+    );
   }
 }

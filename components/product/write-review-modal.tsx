@@ -1,24 +1,23 @@
+// components/product/write-review-modal.tsx
 'use client';
 
-import { useState, useTransition } from 'react';
-import { X, Star, Loader2 } from 'lucide-react';
-import { createProductReview } from '@/actions/review';
+import { useState, useTransition, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useUser } from '@clerk/nextjs';
+import { createProductReview, ReviewWithUserData } from '@/actions/review';
+import { createReviewSchema, CreateReviewInput } from '@/schemas/review';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { X, Star, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 
-export interface UIReview {
-  id: string;
-  author: string;
-  rating: number;
-  content: string;
-  isVerified: boolean;
-  date: string;
-}
+export type UIReview = ReviewWithUserData;
 
-interface WriteReviewModalProps {
+export interface WriteReviewModalProps {
   productId: string;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (newReview: UIReview) => void;
+  onSuccess?: (newReview: ReviewWithUserData) => void;
 }
 
 export function WriteReviewModal({
@@ -27,161 +26,232 @@ export function WriteReviewModal({
   onClose,
   onSuccess,
 }: WriteReviewModalProps) {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const [isPending, startTransition] = useTransition();
+  const [hoverRating, setHoverRating] = useState<number>(0);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isSuccess, setIsSuccess] = useState<boolean>(false);
 
-  const [author, setAuthor] = useState(user?.fullName || '');
-  const [rating, setRating] = useState(5);
-  const [hoverRating, setHoverRating] = useState(0);
-  const [content, setContent] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  const defaultAuthorName = user
+    ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || ''
+    : '';
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<CreateReviewInput>({
+    resolver: zodResolver(createReviewSchema),
+    defaultValues: {
+      productId,
+      userId: user?.id || null,
+      author: defaultAuthorName,
+      rating: 5,
+      comment: '',
+    },
+  });
+
+  const selectedRating = watch('rating');
+  const watchedComment = watch('comment') || '';
+
+  useEffect(() => {
+    if (isLoaded && user) {
+      const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || '';
+      setValue('author', name);
+      setValue('userId', user.id);
+    }
+  }, [isLoaded, user, setValue]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!author.trim() || !content.trim()) {
-      setErrorMessage('Please fill in all required fields.');
-      return;
-    }
+  const handleRatingSelect = (starValue: number) => {
+    setValue('rating', starValue, { shouldValidate: true });
+  };
+
+  const onSubmit = (values: CreateReviewInput) => {
+    setServerError(null);
 
     startTransition(async () => {
-      setErrorMessage('');
-      const response = await createProductReview({
+      const result = await createProductReview({
+        ...values,
         productId,
-        userId: user?.id,
-        author: author.trim(),
-        rating,
-        comment: content.trim(),
+        userId: user?.id || null,
       });
 
-      if (!response.success) {
-        setErrorMessage(response.error || 'Failed to submit review.');
+      if (!result.success || !result.data) {
+        setServerError(result.error || 'Failed to submit your review.');
         return;
       }
 
-      onSuccess({
-        id: `rev-${Date.now()}`,
-        author: author.trim(),
-        rating,
-        content: `"${content.trim()}"`,
-        isVerified: true,
-        date: new Date().toLocaleDateString('en-US', {
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric',
-        }),
-      });
+      setIsSuccess(true);
+      if (onSuccess) {
+        onSuccess(result.data);
+      }
 
-      setContent('');
-      setRating(5);
-      onClose();
+      setTimeout(() => {
+        setIsSuccess(false);
+        reset();
+        onClose();
+      }, 1000);
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200 font-satoshi text-black dark:text-white">
-      <div className="relative w-full max-w-[540px] bg-white dark:bg-zinc-900 rounded-[20px] p-6 sm:p-8 shadow-2xl border border-black/10 dark:border-zinc-800">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-black/10 dark:border-zinc-800 mb-6">
-          <h3 className="font-integral font-bold text-[20px] sm:text-[24px] text-black dark:text-white uppercase tracking-tight">
-            Write a Review
-          </h3>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="write-review-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 font-satoshi text-black dark:text-white animate-in fade-in duration-200"
+    >
+      <div className="relative w-full max-w-[540px] rounded-[24px] bg-white p-6 sm:p-8 shadow-2xl border border-black/10 dark:border-zinc-800 dark:bg-zinc-900 transition-all">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-black/10 pb-4 dark:border-zinc-800">
+          <div>
+            <h2
+              id="write-review-title"
+              className="font-integral text-xl sm:text-2xl font-bold uppercase tracking-tight text-black dark:text-white"
+            >
+              Write A Review
+            </h2>
+            <p className="mt-0.5 text-xs text-black/60 dark:text-zinc-400">
+              Share your thoughts and sizing experience with our community.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white rounded-full transition-colors focus:outline-none cursor-pointer"
-            aria-label="Close modal"
+            aria-label="Close review modal"
+            className="rounded-full p-2 text-black/50 transition-colors hover:bg-black/5 hover:text-black dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white focus:outline-none cursor-pointer"
           >
-            <X size={20} />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
+        {/* Success Banner */}
+        {isSuccess && (
+          <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 text-xs font-medium text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span>Thank you! Your review has been published.</span>
+          </div>
+        )}
+
+        {/* Server Error Banner */}
+        {serverError && (
+          <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-rose-200 bg-rose-50 p-4 text-xs font-medium text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+            <span>{serverError}</span>
+          </div>
+        )}
+
         {/* Form */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {errorMessage && (
-            <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 rounded-[12px] text-xs font-medium">
-              {errorMessage}
-            </div>
-          )}
-
-          {/* Rating Selection */}
-          <div className="flex flex-col gap-2">
-            <label className="font-satoshi font-medium text-xs text-black/60 dark:text-zinc-400">
-              Your Rating *
+        <form onSubmit={handleSubmit(onSubmit)} className="mt-5 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-black dark:text-white">
+              Overall Rating <span className="text-rose-500">*</span>
             </label>
-            <div className="flex items-center gap-1.5">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoverRating(star)}
-                  onMouseLeave={() => setHoverRating(0)}
-                  className="p-1 focus:outline-none cursor-pointer"
-                >
-                  <Star
-                    size={24}
-                    className={`transition-colors ${
-                      (hoverRating || rating) >= star
-                        ? 'fill-amber-400 text-amber-400'
-                        : 'text-black/20 dark:text-zinc-700'
-                    }`}
-                  />
-                </button>
-              ))}
+            <div
+              className="flex items-center gap-1.5 pt-0.5"
+              role="radiogroup"
+              aria-label="Product rating selection"
+            >
+              {[1, 2, 3, 4, 5].map((star) => {
+                const isActive = (hoverRating || selectedRating) >= star;
+                return (
+                  <button
+                    key={star}
+                    type="button"
+                    role="radio"
+                    aria-checked={selectedRating === star}
+                    aria-label={`${star} Star${star > 1 ? 's' : ''}`}
+                    onClick={() => handleRatingSelect(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                    className="p-1 focus:outline-none transition-transform hover:scale-110 cursor-pointer"
+                  >
+                    <Star
+                      className={`h-7 w-7 transition-colors ${
+                        isActive
+                          ? 'fill-[#FFC633] text-[#FFC633]'
+                          : 'text-black/20 dark:text-zinc-700'
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+              <span className="ml-2 text-xs font-bold text-black/70 dark:text-zinc-300">
+                {hoverRating || selectedRating} / 5
+              </span>
             </div>
+            {errors.rating && (
+              <p className="text-[11px] font-medium text-rose-500">{errors.rating.message}</p>
+            )}
           </div>
 
-          {/* Author Name */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="review-author" className="font-satoshi font-medium text-xs text-black/60 dark:text-zinc-400">
-              Your Name *
+          <div className="space-y-1.5">
+            <label htmlFor="review-author-input" className="text-xs font-bold text-black dark:text-white">
+              Your Name <span className="text-rose-500">*</span>
             </label>
-            <input
-              id="review-author"
-              type="text"
-              required
+            <Input
+              id="review-author-input"
               placeholder="e.g. Samantha D."
-              value={author}
-              onChange={(e) => setAuthor(e.target.value)}
-              className="w-full h-[44px] bg-[#F0F0F0] dark:bg-black rounded-[12px] px-4 font-satoshi text-xs text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white"
+              disabled={isPending || (isLoaded && Boolean(user?.fullName))}
+              className="h-10 rounded-[12px] bg-[#F0F0F0] dark:bg-black border-none text-xs text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-black dark:focus-visible:ring-white"
+              {...register('author')}
             />
+            {errors.author && (
+              <p className="text-[11px] font-medium text-rose-500">{errors.author.message}</p>
+            )}
           </div>
 
-          {/* Review Content */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="review-content" className="font-satoshi font-medium text-xs text-black/60 dark:text-zinc-400">
-              Your Feedback *
-            </label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label htmlFor="review-comment-input" className="text-xs font-bold text-black dark:text-white">
+                Detailed Feedback <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-black/40 dark:text-zinc-500 font-mono">
+                {watchedComment.length} / 1000
+              </span>
+            </div>
             <textarea
-              id="review-content"
-              required
+              id="review-comment-input"
               rows={4}
-              placeholder="Share details about the fabric, sizing, and styling..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="w-full bg-[#F0F0F0] dark:bg-black rounded-[12px] p-4 font-satoshi text-xs text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white resize-none"
+              disabled={isPending}
+              placeholder="How did the garment fit? What was your impression of the fabric weight, stitching, and color accuracy?"
+              className="w-full rounded-[14px] bg-[#F0F0F0] dark:bg-black border-none p-3.5 text-xs text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white resize-none"
+              {...register('comment')}
             />
+            {errors.comment && (
+              <p className="text-[11px] font-medium text-rose-500">{errors.comment.message}</p>
+            )}
           </div>
 
-          {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-black/10 dark:border-zinc-800">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={onClose}
-              className="h-[42px] px-6 rounded-[62px] border border-black/10 dark:border-zinc-800 font-satoshi font-medium text-xs text-black dark:text-white hover:bg-[#F0F0F0] dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              disabled={isPending}
+              className="h-10 px-6 rounded-[62px] border-black/10 dark:border-zinc-800 text-xs font-semibold hover:bg-black/5 dark:hover:bg-zinc-800 cursor-pointer"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={isPending}
-              className="h-[42px] px-8 rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-xs hover:bg-black/80 dark:hover:bg-white/80 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              disabled={isPending || isSuccess}
+              className="h-10 px-8 rounded-[62px] bg-black text-white hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80 text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
             >
-              {isPending && <Loader2 size={14} className="animate-spin" />}
-              <span>{isPending ? 'Submitting...' : 'Submit Review'}</span>
-            </button>
+              {isPending ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Submitting...
+                </span>
+              ) : (
+                'Post Review'
+              )}
+            </Button>
           </div>
         </form>
       </div>

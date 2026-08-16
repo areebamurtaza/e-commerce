@@ -28,6 +28,7 @@ import { useCartStore } from '@/lib/cart-store';
 import { checkoutFormSchema, CheckoutFormValues } from '@/schemas/checkout';
 import { getStripe } from '@/lib/stripe-client';
 import { StripePaymentForm } from '@/components/checkout/stripe-payment-form';
+import { ReservationTimer } from '@/components/checkout/reservation-timer';
 import { createCashOnDeliveryOrder } from '@/actions/order';
 
 export default function CheckoutPage() {
@@ -42,6 +43,7 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [activeOrderNumber, setActiveOrderNumber] = useState<string | null>(null);
+  const [reservationExpiresAt, setReservationExpiresAt] = useState<string | null>(null);
 
   const {
     items,
@@ -79,10 +81,14 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (isUserLoaded && user) {
       if (user.primaryEmailAddress?.emailAddress) {
-        form.setValue('email', user.primaryEmailAddress.emailAddress, { shouldValidate: true });
+        form.setValue('email', user.primaryEmailAddress.emailAddress, {
+          shouldValidate: true,
+        });
       }
-      if (user.firstName) form.setValue('firstName', user.firstName, { shouldValidate: true });
-      if (user.lastName) form.setValue('lastName', user.lastName, { shouldValidate: true });
+      if (user.firstName)
+        form.setValue('firstName', user.firstName, { shouldValidate: true });
+      if (user.lastName)
+        form.setValue('lastName', user.lastName, { shouldValidate: true });
     }
   }, [isUserLoaded, user, form]);
 
@@ -122,7 +128,9 @@ export default function CheckoutPage() {
         const codResult = await createCashOnDeliveryOrder({
           customerName: `${data.firstName.trim()} ${data.lastName.trim()}`,
           customerEmail: data.email.trim(),
-          shippingAddress: `${data.address}${data.apartment ? ', ' + data.apartment : ''}`,
+          shippingAddress: `${data.address}${
+            data.apartment ? ', ' + data.apartment : ''
+          }`,
           city: data.city.trim(),
           postalCode: data.postalCode.trim(),
           country: 'United States',
@@ -131,14 +139,19 @@ export default function CheckoutPage() {
           shippingFee: shipping,
           discount: discountAmount,
           total: grandTotal,
+          userId: user?.id,
         });
 
         if (!codResult.success || !codResult.data?.orderNumber) {
-          throw new Error(codResult.error || 'Failed to place Cash on Delivery order.');
+          throw new Error(
+            codResult.error || 'Failed to place Cash on Delivery order.'
+          );
         }
 
         clearCart();
-        router.replace(`/order-confirmation?orderNumber=${codResult.data.orderNumber}`);
+        router.replace(
+          `/order-confirmation?orderNumber=${codResult.data.orderNumber}`
+        );
         return;
       }
 
@@ -147,7 +160,9 @@ export default function CheckoutPage() {
         items: formattedItems,
         customerName: `${data.firstName.trim()} ${data.lastName.trim()}`,
         customerEmail: data.email.trim(),
-        shippingAddress: `${data.address}, ${data.apartment ? data.apartment + ', ' : ''}${data.city}, ${data.state} ${data.postalCode}`,
+        shippingAddress: `${data.address}, ${
+          data.apartment ? data.apartment + ', ' : ''
+        }${data.city}, ${data.state} ${data.postalCode}`,
         userId: user?.id,
       };
 
@@ -166,10 +181,13 @@ export default function CheckoutPage() {
       setClientSecret(result.data.clientSecret);
       setActiveOrderId(result.data.orderId);
       setActiveOrderNumber(result.data.orderNumber);
+      setReservationExpiresAt(result.data.expiresAt);
     } catch (error) {
       console.error('[CHECKOUT_SUBMISSION_ERROR]:', error);
       setCheckoutError(
-        error instanceof Error ? error.message : 'An error occurred during checkout initialization.'
+        error instanceof Error
+          ? error.message
+          : 'An error occurred during checkout initialization.'
       );
     } finally {
       setIsSubmitting(false);
@@ -189,7 +207,7 @@ export default function CheckoutPage() {
       <div className="w-full bg-white dark:bg-black pb-20 font-satoshi text-black dark:text-white">
         <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px] pt-6">
           <div className="w-full bg-[#F0F0F0]/50 dark:bg-zinc-900/50 rounded-[20px] border border-black/10 dark:border-zinc-800 py-16 px-6 flex flex-col items-center justify-center text-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-white dark:bg-zinc-800 border border-black/10 dark:border-zinc-700 flex items-center justify-center text-black/60 dark:text-zinc-400 shadow-sm">
+            <div className="w-16 h-16 rounded-full bg-white dark:bg-zinc-800 border border-black/10 dark:border-zinc-700 flex items-center justify-center text-black/60 dark:text-zinc-400 shadow-xs">
               <ShoppingBag className="w-8 h-8" />
             </div>
 
@@ -223,11 +241,17 @@ export default function CheckoutPage() {
           className="flex items-center justify-between py-5 sm:py-6 text-black/60 dark:text-zinc-400 font-satoshi text-[14px] sm:text-[16px]"
         >
           <div className="flex items-center gap-1.5 sm:gap-3">
-            <Link href="/" className="hover:text-black dark:hover:text-white transition-colors">
+            <Link
+              href="/"
+              className="hover:text-black dark:hover:text-white transition-colors"
+            >
               Home
             </Link>
             <ChevronRight size={16} className="text-black/40 dark:text-zinc-600" />
-            <Link href="/cart" className="hover:text-black dark:hover:text-white transition-colors">
+            <Link
+              href="/cart"
+              className="hover:text-black dark:hover:text-white transition-colors"
+            >
               Cart
             </Link>
             <ChevronRight size={16} className="text-black/40 dark:text-zinc-600" />
@@ -265,11 +289,26 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {/* 2-Column Responsive Grid (No wrapping <form> tag) */}
+        {/* 2-Column Responsive Grid */}
         <div className="flex flex-col lg:flex-row gap-5 xl:gap-8 items-start">
           {/* Left Column: Shipping & Payment Cards */}
           <div className="w-full lg:w-[58%] xl:w-[715px] space-y-6 shrink-0">
-            
+            {/* 30-Minute Reservation Timer */}
+            {clientSecret && reservationExpiresAt && (
+              <ReservationTimer
+                expiresAt={reservationExpiresAt}
+                onExpire={() => {
+                  setCheckoutError(
+                    'Your 30-minute stock hold has expired. Please review your cart and re-initiate payment.'
+                  );
+                  setClientSecret(null);
+                  setActiveOrderId(null);
+                  setActiveOrderNumber(null);
+                  setReservationExpiresAt(null);
+                }}
+              />
+            )}
+
             {/* Form 1: Shipping Details Form */}
             <form
               id="shipping-form"
@@ -442,7 +481,9 @@ export default function CheckoutPage() {
               {!clientSecret && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div
-                    onClick={() => form.setValue('paymentMethod', 'CARD', { shouldValidate: true })}
+                    onClick={() =>
+                      form.setValue('paymentMethod', 'CARD', { shouldValidate: true })
+                    }
                     className={`cursor-pointer rounded-[16px] border p-4 flex flex-col justify-between space-y-3 transition-all ${
                       selectedPaymentMethod === 'CARD'
                         ? 'border-black dark:border-white bg-black/5 dark:bg-white/10 ring-1 ring-black dark:ring-white'
@@ -456,7 +497,9 @@ export default function CheckoutPage() {
                       )}
                     </div>
                     <div>
-                      <p className="font-satoshi font-bold text-[14px]">Credit / Debit Card</p>
+                      <p className="font-satoshi font-bold text-[14px]">
+                        Credit / Debit Card
+                      </p>
                       <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
                         Stripe Elements Gateway
                       </p>
@@ -464,7 +507,9 @@ export default function CheckoutPage() {
                   </div>
 
                   <div
-                    onClick={() => form.setValue('paymentMethod', 'COD', { shouldValidate: true })}
+                    onClick={() =>
+                      form.setValue('paymentMethod', 'COD', { shouldValidate: true })
+                    }
                     className={`cursor-pointer rounded-[16px] border p-4 flex flex-col justify-between space-y-3 transition-all ${
                       selectedPaymentMethod === 'COD'
                         ? 'border-black dark:border-white bg-black/5 dark:bg-white/10 ring-1 ring-black dark:ring-white'
@@ -478,7 +523,9 @@ export default function CheckoutPage() {
                       )}
                     </div>
                     <div>
-                      <p className="font-satoshi font-bold text-[14px]">Cash on Delivery</p>
+                      <p className="font-satoshi font-bold text-[14px]">
+                        Cash on Delivery
+                      </p>
                       <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
                         Pay upon delivery
                       </p>
@@ -500,6 +547,7 @@ export default function CheckoutPage() {
                         setClientSecret(null);
                         setActiveOrderId(null);
                         setActiveOrderNumber(null);
+                        setReservationExpiresAt(null);
                       }}
                       className="text-xs text-black dark:text-white underline font-medium cursor-pointer"
                     >
@@ -526,7 +574,9 @@ export default function CheckoutPage() {
                       totalAmount={grandTotal}
                       onSuccess={(orderNum) => {
                         clearCart();
-                        router.replace(`/order-confirmation?orderNumber=${orderNum}`);
+                        router.replace(
+                          `/order-confirmation?orderNumber=${orderNum}`
+                        );
                       }}
                     />
                   </Elements>
@@ -544,7 +594,10 @@ export default function CheckoutPage() {
 
               <div className="max-h-[240px] overflow-y-auto space-y-3 pr-1 divide-y divide-black/10 dark:divide-zinc-800 no-scrollbar">
                 {items.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 pt-3 first:pt-0">
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 pt-3 first:pt-0"
+                  >
                     <div className="relative w-14 h-14 shrink-0 overflow-hidden rounded-[12px] border border-black/10 dark:border-zinc-800 bg-[#F0F0F0] dark:bg-zinc-800">
                       <Image
                         src={item.image || '/images/pd1.png'}
@@ -606,7 +659,9 @@ export default function CheckoutPage() {
                   <span>Delivery Fee</span>
                   <span className="font-bold text-black dark:text-white">
                     {shipping === 0 ? (
-                      <span className="text-emerald-600 uppercase text-xs font-bold">Free</span>
+                      <span className="text-emerald-600 uppercase text-xs font-bold">
+                        Free
+                      </span>
                     ) : (
                       `$${shipping.toFixed(2)}`
                     )}
@@ -647,7 +702,9 @@ export default function CheckoutPage() {
                   ) : (
                     <>
                       <CheckCircle2 className="w-5 h-5 text-emerald-500 mr-2" />
-                      <span>Confirm Cash on Delivery (${grandTotal.toFixed(2)})</span>
+                      <span>
+                        Confirm Cash on Delivery (${grandTotal.toFixed(2)})
+                      </span>
                     </>
                   )}
                 </button>
@@ -659,7 +716,8 @@ export default function CheckoutPage() {
               )}
 
               <p className="font-satoshi text-[11px] text-center text-black/40 dark:text-zinc-500">
-                By placing your order you agree to SHOP.CO Terms of Service & Privacy Policy.
+                By placing your order you agree to SHOP.CO Terms of Service & Privacy
+                Policy.
               </p>
             </div>
           </div>

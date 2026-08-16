@@ -1,246 +1,259 @@
 // app/api/checkout/intent/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/lib/prisma';
-import Stripe from 'stripe';
+import { checkRateLimit } from '@/lib/ratelimit';
+import { stripe } from '@/lib/stripe';
+import { ORDER_CONFIG } from '@/lib/constants';
+import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { z } from 'zod';
-import { OrderStatus, PaymentStatus, PaymentMethod, Prisma } from '@prisma/client';
-import { checkoutRateLimiter, checkIdempotency } from '@/lib/ratelimit';
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim() || '';
+export const dynamic = 'force-dynamic';
 
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: '2025-02-24.acacia' as Stripe.LatestApiVersion,
-  typescript: true,
-});
-
-const checkoutItemSchema = z.object({
-  variantId: z.string().optional(),
-  productId: z.string().optional(),
-  size: z.string().optional(),
-  color: z.string().optional(),
-  quantity: z.number().int().positive('Quantity must be at least 1'),
-});
+// Extends Next.js Serverless execution limit to 60 seconds (prevents gateway timeouts)
+export const maxDuration = 60;
 
 const checkoutIntentSchema = z.object({
-  items: z.array(checkoutItemSchema).min(1, 'Cart cannot be empty'),
-  customerName: z.string().min(2, 'Customer name is required'),
-  customerEmail: z.string().email('Valid email is required'),
-  shippingAddress: z.string().min(5, 'Shipping address is required'),
-  userId: z.string().optional(),
-  idempotencyKey: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        variantId: z.string().min(1, 'Variant ID is required'),
+        productId: z.string().min(1, 'Product ID is required'),
+        size: z.string().min(1, 'Size is required'),
+        color: z.string().min(1, 'Color is required'),
+        quantity: z.number().int().positive('Quantity must be at least 1'),
+      })
+    )
+    .min(1, 'Cart cannot be empty'),
+  customerName: z.string().trim().min(2, 'Customer name is required'),
+  customerEmail: z.string().trim().email('Valid email address is required'),
+  shippingAddress: z.string().trim().min(5, 'Valid shipping address is required'),
+  userId: z.string().optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. IP / User Rate Limiting
-    const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    const { success: rateLimitPassed } = await checkoutRateLimiter.limit(ip);
+    // 1. Sliding Window Rate Limiter
+    const forwardedFor = req.headers.get('x-forwarded-for');
+    const realIp = req.headers.get('x-real-ip');
+    const clientIp = forwardedFor
+      ? forwardedFor.split(',')[0].trim()
+      : realIp || '127.0.0.1';
 
-    if (!rateLimitPassed) {
+    const rateLimit = await checkRateLimit(
+      `checkout-intent:${clientIp}`,
+      ORDER_CONFIG.CHECKOUT_RATE_LIMIT_MAX,
+      ORDER_CONFIG.CHECKOUT_RATE_LIMIT_WINDOW_SECONDS
+    );
+
+    if (!rateLimit.success) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Too many checkout attempts. Please wait 1 minute before trying again.',
+          error: 'Too many checkout attempts. Please wait a moment before trying again.',
         },
         { status: 429 }
       );
     }
 
-    const body = await req.json();
-    const validatedData = checkoutIntentSchema.parse(body);
-
-    // 2. Prevent Double Clicks / Duplicate Orders via Idempotency Key
-    if (validatedData.idempotencyKey) {
-      const isUniqueRequest = await checkIdempotency(validatedData.idempotencyKey);
-      if (!isUniqueRequest) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'An order request is already processing. Please check your screen.',
-          },
-          { status: 409 }
-        );
-      }
-    }
-
-    // 3. Parallel Database Product Variant Lookups
-    const variantLookups = await Promise.all(
-      validatedData.items.map(async (item) => {
-        let matchedVariant = null;
-
-        if (item.variantId) {
-          matchedVariant = await prisma.productVariant.findFirst({
-            where: {
-              OR: [{ id: item.variantId }, { sku: item.variantId }],
-            },
-            include: {
-              product: {
-                select: { id: true, title: true, basePrice: true, discountPercentage: true },
-              },
-            },
-          });
-        }
-
-        return { item, matchedVariant };
-      })
-    );
-
-    // 4. Validate Inventory & Calculate Verified Price
-    const resolvedItems: Array<{
-      variantId: string;
-      title: string;
-      size: string;
-      colorName: string;
-      unitPrice: number;
-      quantity: number;
-      total: number;
-    }> = [];
-
-    for (const { item, matchedVariant } of variantLookups) {
-      if (!matchedVariant) {
-        return NextResponse.json(
-          { success: false, error: 'One or more items in your cart are no longer available.' },
-          { status: 400 }
-        );
-      }
-
-      if (matchedVariant.stockQuantity < item.quantity) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: `Insufficient stock for "${matchedVariant.product.title}" (${matchedVariant.size}, ${matchedVariant.colorName}). Only ${matchedVariant.stockQuantity} left.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      const basePlusOffset = matchedVariant.product.basePrice + matchedVariant.priceOffset;
-      const discount = matchedVariant.product.discountPercentage || 0;
-      const verifiedUnitPrice =
-        discount > 0 ? basePlusOffset * (1 - discount / 100) : basePlusOffset;
-      const finalUnitPrice = Math.round(verifiedUnitPrice * 100) / 100;
-
-      resolvedItems.push({
-        variantId: matchedVariant.id,
-        title: matchedVariant.product.title,
-        size: matchedVariant.size,
-        colorName: matchedVariant.colorName,
-        unitPrice: finalUnitPrice,
-        quantity: item.quantity,
-        total: Math.round(finalUnitPrice * item.quantity * 100) / 100,
-      });
-    }
-
-    const subtotal = resolvedItems.reduce((acc, item) => acc + item.total, 0);
-    const shippingFee = subtotal > 200 ? 0 : 15;
-    const total = Math.round((subtotal + shippingFee) * 100) / 100;
-    const totalAmountInCents = Math.round(total * 100);
-
-    const timestamp = Date.now().toString().slice(-6);
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const orderNumber = `ORD-${timestamp}-${randomSuffix}`;
-
-    // 30 Minutes from now
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-
-    // 5. Connect User if authenticated
-    let userConnectInput: Prisma.UserCreateNestedOneWithoutOrdersInput | undefined = undefined;
-    if (validatedData.userId) {
-      const userExists = await prisma.user.findFirst({
-        where: {
-          OR: [{ id: validatedData.userId }, { email: validatedData.customerEmail.toLowerCase() }],
-        },
-        select: { id: true },
-      });
-      if (userExists) {
-        userConnectInput = { connect: { id: userExists.id } };
-      }
-    }
-
-    // 6. Create Pending Order with 30-Minute Reservation
-    const order = await withDbRetry(async () => {
-      return await prisma.order.create({
-        data: {
-          orderNumber,
-          customerName: validatedData.customerName,
-          customerEmail: validatedData.customerEmail,
-          shippingAddress: validatedData.shippingAddress,
-          subtotal,
-          shippingFee,
-          discount: 0,
-          total,
-          status: OrderStatus.PENDING,
-          paymentStatus: PaymentStatus.PENDING,
-          expiresAt,
-          ...(userConnectInput ? { user: userConnectInput } : {}),
-          items: {
-            create: resolvedItems.map((item) => ({
-              title: item.title,
-              size: item.size,
-              color: item.colorName,
-              unitPrice: item.unitPrice,
-              quantity: item.quantity,
-              total: item.total,
-              variant: {
-                connect: { id: item.variantId },
-              },
-            })),
-          },
-          payment: {
-            create: {
-              amount: total,
-              fee: 0,
-              netAmount: total,
-              status: PaymentStatus.PENDING,
-              paymentMethod: PaymentMethod.STRIPE,
-            },
-          },
-        },
-      });
-    });
-
-    // 7. Create Stripe PaymentIntent with Order Metadata
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: totalAmountInCents,
-      currency: 'usd',
-      automatic_payment_methods: { enabled: true },
-      receipt_email: validatedData.customerEmail,
-      metadata: {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        customerEmail: validatedData.customerEmail,
-        customerName: validatedData.customerName,
-      },
-    });
-
-    // Link Intent to Payment row
-    await prisma.payment.updateMany({
-      where: { orderId: order.id },
-      data: { stripePaymentIntentId: paymentIntent.id },
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        clientSecret: paymentIntent.client_secret,
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        total: order.total,
-        expiresAt: order.expiresAt,
-      },
-    });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
+    // 2. Safe JSON Parsing
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
       return NextResponse.json(
-        { success: false, error: error.issues[0]?.message || 'Validation failed.' },
+        { success: false, error: 'Malformed JSON payload in request body.' },
         { status: 400 }
       );
     }
-    console.error('[API_CHECKOUT_INTENT_ERROR]:', error);
+
+    // 3. Schema Validation
+    const validation = checkoutIntentSchema.safeParse(rawBody);
+    if (!validation.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: validation.error.issues[0]?.message || 'Invalid checkout payload.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const { items, customerName, customerEmail, shippingAddress, userId } =
+      validation.data;
+
+    return await withDbRetry(async () => {
+      // 4. Fetch live database variants to verify pricing and stock
+      const variantIds = items.map((i) => i.variantId);
+      const dbVariants = await prisma.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        include: {
+          product: {
+            select: {
+              id: true,
+              title: true,
+              basePrice: true,
+              discountPercentage: true,
+            },
+          },
+        },
+      });
+
+      if (dbVariants.length !== items.length) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'One or more items in your cart are no longer available.',
+          },
+          { status: 400 }
+        );
+      }
+
+      // Check stock availability
+      for (const item of items) {
+        const matchedVariant = dbVariants.find((v) => v.id === item.variantId);
+        if (!matchedVariant) {
+          return NextResponse.json(
+            { success: false, error: `Item variant not found.` },
+            { status: 400 }
+          );
+        }
+        if (matchedVariant.stockQuantity < item.quantity) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Insufficient stock for "${matchedVariant.product.title}" (${matchedVariant.size} / ${matchedVariant.colorName}). Only ${matchedVariant.stockQuantity} available.`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
+      // 5. Calculate Server-Side Subtotal, Discount & Shipping
+      let calculatedSubtotal = 0;
+      let calculatedDiscount = 0;
+
+      const orderItemsData = items.map((item) => {
+        const variant = dbVariants.find((v) => v.id === item.variantId)!;
+        const originalUnitPrice = variant.product.basePrice + variant.priceOffset;
+        const discountPercentage = variant.product.discountPercentage || 0;
+        const unitPrice =
+          discountPercentage > 0
+            ? Number((originalUnitPrice * (1 - discountPercentage / 100)).toFixed(2))
+            : originalUnitPrice;
+
+        const lineTotal = Number((unitPrice * item.quantity).toFixed(2));
+        const lineOriginalTotal = Number((originalUnitPrice * item.quantity).toFixed(2));
+
+        calculatedSubtotal += lineOriginalTotal;
+        calculatedDiscount += lineOriginalTotal - lineTotal;
+
+        return {
+          variantId: variant.id,
+          title: variant.product.title,
+          size: variant.size,
+          color: variant.colorName,
+          unitPrice,
+          quantity: item.quantity,
+          total: lineTotal,
+        };
+      });
+
+      calculatedSubtotal = Number(calculatedSubtotal.toFixed(2));
+      calculatedDiscount = Number(calculatedDiscount.toFixed(2));
+      const deliveryFee =
+        calculatedSubtotal > ORDER_CONFIG.FREE_SHIPPING_THRESHOLD
+          ? 0
+          : ORDER_CONFIG.STANDARD_SHIPPING_FEE;
+      const grandTotal = Number(
+        Math.max(0, calculatedSubtotal - calculatedDiscount + deliveryFee).toFixed(2)
+      );
+
+      // 6. Dynamic Expiration Calculation based on ORDER_CONFIG
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const reservationExpiresAt = new Date(
+        Date.now() + ORDER_CONFIG.RESERVATION_EXPIRY_MINUTES * 60 * 1000
+      );
+
+      // 7. Atomic Database Transaction with Timeout
+      const createdOrder = await prisma.$transaction(
+        async (tx) => {
+          const order = await tx.order.create({
+            data: {
+              orderNumber,
+              userId: userId || null,
+              customerName,
+              customerEmail,
+              shippingAddress,
+              subtotal: calculatedSubtotal,
+              discount: calculatedDiscount,
+              shippingFee: deliveryFee,
+              total: grandTotal,
+              status: OrderStatus.PENDING,
+              paymentStatus: PaymentStatus.PENDING,
+              expiresAt: reservationExpiresAt,
+              items: {
+                create: orderItemsData,
+              },
+            },
+          });
+
+          await tx.payment.create({
+            data: {
+              orderId: order.id,
+              paymentMethod: PaymentMethod.STRIPE,
+              status: PaymentStatus.PENDING,
+              amount: grandTotal,
+              fee: 0,
+              netAmount: grandTotal,
+            },
+          });
+
+          return order;
+        },
+        { timeout: 15000 }
+      );
+
+      // 8. Create Stripe PaymentIntent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(grandTotal * 100),
+        currency: 'usd',
+        receipt_email: customerEmail,
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          orderId: createdOrder.id,
+          orderNumber: createdOrder.orderNumber,
+          customerEmail,
+          userId: userId || '',
+        },
+      });
+
+      await prisma.payment.update({
+        where: { orderId: createdOrder.id },
+        data: { stripePaymentIntentId: paymentIntent.id },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          orderId: createdOrder.id,
+          orderNumber: createdOrder.orderNumber,
+          expiresAt: reservationExpiresAt.toISOString(),
+          reservationMinutes: ORDER_CONFIG.RESERVATION_EXPIRY_MINUTES,
+          total: grandTotal,
+        },
+        message: 'Order reservation created successfully.',
+      });
+    });
+  } catch (error) {
+    console.error('[CHECKOUT_INTENT_ROUTE_ERROR]:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Server error initializing checkout.',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to initialize checkout gateway.',
       },
       { status: 500 }
     );

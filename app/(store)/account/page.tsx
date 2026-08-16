@@ -1,8 +1,10 @@
 // app/(store)/account/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import type { Address } from '@prisma/client';
 import {
   Package,
@@ -20,14 +22,14 @@ import {
   AlertCircle,
   RefreshCw,
   Trash2,
+  Truck,
+  ExternalLink,
+  Search,
 } from 'lucide-react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
-import {
-  InvoiceModal,
-  InvoiceData,
-  OrderStatusType,
-} from '@/components/account/invoice-modal';
+import { Input } from '@/components/ui/input';
+import { InvoiceModal } from '@/components/account/invoice-modal';
 import { AddressModal } from '@/components/account/address-modal';
 import { getUserOrders, DbOrderWithItems } from '@/actions/order';
 import {
@@ -36,23 +38,27 @@ import {
   setDefaultUserAddress,
   deleteUserAddress,
 } from '@/actions/user';
+import { OrderStatus } from '@prisma/client';
 
 type AccountTab = 'orders' | 'profile' | 'addresses';
 
 export default function MyAccountPage() {
+  const router = useRouter();
   const { user, isLoaded: isUserLoaded } = useUser();
   const { signOut } = useClerk();
 
   const [activeTab, setActiveTab] = useState<AccountTab>('orders');
-  const [activeInvoice, setActiveInvoice] = useState<InvoiceData | null>(null);
+  const [selectedOrderForInvoice, setSelectedOrderForInvoice] =
+    useState<DbOrderWithItems | null>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = useState<boolean>(false);
+  const [trackingSearchQuery, setTrackingSearchQuery] = useState<string>('');
 
   // Orders State
-  const [orders, setOrders] = useState<InvoiceData[]>([]);
+  const [orders, setOrders] = useState<DbOrderWithItems[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(true);
   const [ordersError, setOrdersError] = useState<string | null>(null);
 
-  // Address State - Typed strictly to Prisma's Address model
+  // Address State
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [isLoadingAddresses, setIsLoadingAddresses] = useState<boolean>(true);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState<boolean>(false);
@@ -64,7 +70,7 @@ export default function MyAccountPage() {
   const [profileSavedSuccess, setProfileSavedSuccess] = useState<boolean>(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
-  // Synchronize profile details when Clerk authentication resolves
+  // Synchronize Clerk profile credentials
   useEffect(() => {
     if (isUserLoaded && user) {
       const resolvedName =
@@ -75,66 +81,6 @@ export default function MyAccountPage() {
       setEmail(user.primaryEmailAddress?.emailAddress || '');
     }
   }, [isUserLoaded, user]);
-
-  // Transform Database Order to UI InvoiceData
-  const mapDbOrderToInvoice = useCallback((order: DbOrderWithItems): InvoiceData => {
-    const dateIssued = new Date(order.createdAt).toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-
-    let status: OrderStatusType = 'Pending';
-    const normalizedOrderStatus = String(order.status).toUpperCase();
-
-    switch (normalizedOrderStatus) {
-      case 'DELIVERED':
-        status = 'Delivered';
-        break;
-      case 'SHIPPED':
-        status = 'Shipped';
-        break;
-      case 'PROCESSING':
-        status = 'Processing';
-        break;
-      case 'CANCELLED':
-        status = 'Cancelled';
-        break;
-      case 'PENDING':
-      default:
-        status = 'Pending';
-        break;
-    }
-
-    const normalizedPaymentStatus = String(order.paymentStatus).toUpperCase();
-    const isPaid =
-      normalizedPaymentStatus === 'PAID' ||
-      normalizedPaymentStatus === 'COMPLETED' ||
-      normalizedPaymentStatus === 'SUCCEEDED';
-
-    const paymentMethod = isPaid ? 'Credit Card (Stripe)' : 'Cash on Delivery';
-
-    return {
-      orderNumber: order.orderNumber,
-      dateIssued,
-      paymentMethod,
-      status,
-      customerName: order.customerName,
-      shippingAddress: order.shippingAddress,
-      subtotal: order.subtotal,
-      discount: order.discount || 0,
-      shippingFee: order.shippingFee || 0,
-      total: order.total,
-      items: order.items.map((item) => ({
-        id: item.id,
-        title: item.title,
-        size: item.size,
-        color: item.color,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      })),
-    };
-  }, []);
 
   // Fetch Live Orders
   const fetchOrders = useCallback(async () => {
@@ -148,7 +94,7 @@ export default function MyAccountPage() {
 
       const result = await getUserOrders({ userId, email: userEmail });
       if (result.success && result.data) {
-        setOrders(result.data.map(mapDbOrderToInvoice));
+        setOrders(result.data);
       } else {
         setOrdersError(result.error || 'Unable to retrieve order history.');
       }
@@ -158,7 +104,7 @@ export default function MyAccountPage() {
     } finally {
       setIsLoadingOrders(false);
     }
-  }, [isUserLoaded, user, mapDbOrderToInvoice]);
+  }, [isUserLoaded, user]);
 
   // Fetch Live Saved Addresses
   const fetchAddresses = useCallback(async () => {
@@ -182,9 +128,17 @@ export default function MyAccountPage() {
     fetchAddresses();
   }, [fetchOrders, fetchAddresses]);
 
-  const handleOpenInvoice = (order: InvoiceData) => {
-    setActiveInvoice(order);
+  const handleOpenInvoice = (order: DbOrderWithItems) => {
+    setSelectedOrderForInvoice(order);
     setIsInvoiceOpen(true);
+  };
+
+  const handleQuickTrackSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanQuery = trackingSearchQuery.trim();
+    if (cleanQuery) {
+      router.push(`/orders/${cleanQuery}`);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -220,24 +174,24 @@ export default function MyAccountPage() {
     }
   };
 
-  const getStatusBadge = (status: OrderStatusType) => {
+  const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
-      case 'Delivered':
+      case OrderStatus.DELIVERED:
         return 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300';
-      case 'Shipped':
+      case OrderStatus.SHIPPED:
         return 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300';
-      case 'Processing':
+      case OrderStatus.PROCESSING:
         return 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300';
-      case 'Cancelled':
+      case OrderStatus.CANCELLED:
         return 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300';
-      case 'Pending':
+      case OrderStatus.PENDING:
       default:
         return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300';
     }
   };
 
   return (
-    <div className="w-full bg-white dark:bg-black pb-20 pt-6 font-satoshi text-black dark:text-white transition-colors">
+    <div className="w-full bg-white dark:bg-black pb-24 pt-6 font-satoshi text-black dark:text-white transition-colors">
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px] space-y-8">
         {/* Navigation Breadcrumb */}
         <nav
@@ -251,22 +205,43 @@ export default function MyAccountPage() {
           <span className="text-black dark:text-white font-medium">My Account</span>
         </nav>
 
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h1 className="font-integral font-bold text-[32px] sm:text-[40px] text-black dark:text-white uppercase tracking-tight">
-            MY ACCOUNT
-          </h1>
-          {user && (
-            <span className="text-sm font-medium text-black/60 dark:text-zinc-400">
-              Welcome back, <strong className="text-black dark:text-white">{fullName}</strong>
-            </span>
-          )}
+        {/* User Greeting & Instant Tracking Search Bar */}
+        <div className="bg-[#F0F0F0]/60 dark:bg-zinc-900/60 rounded-[24px] border border-black/10 dark:border-zinc-800 p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6 shadow-xs">
+          <div className="space-y-1.5">
+            <h1 className="font-integral font-bold text-2xl sm:text-3xl text-black dark:text-white uppercase tracking-tight">
+              MY ACCOUNT
+            </h1>
+            <p className="text-xs sm:text-sm text-black/60 dark:text-zinc-400">
+              Welcome back, <strong className="text-black dark:text-white">{fullName}</strong>.
+              Manage your orders, addresses, and live shipment tracking.
+            </p>
+          </div>
+
+          {/* Quick Order Lookup Form */}
+          <form onSubmit={handleQuickTrackSubmit} className="flex items-center gap-2 max-w-md w-full">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-black/40 dark:text-zinc-500" />
+              <Input
+                type="text"
+                placeholder="Track Order # (e.g. ORD-894201)"
+                value={trackingSearchQuery}
+                onChange={(e) => setTrackingSearchQuery(e.target.value)}
+                className="h-11 rounded-[62px] bg-white dark:bg-black border border-black/10 dark:border-zinc-700 pl-11 pr-4 text-xs font-mono placeholder:font-satoshi text-black dark:text-white focus-visible:ring-1 focus-visible:ring-black dark:focus-visible:ring-white"
+              />
+            </div>
+            <Button
+              type="submit"
+              className="h-11 px-6 rounded-[62px] bg-black text-white hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80 text-xs font-bold shrink-0 cursor-pointer shadow-xs"
+            >
+              Track
+            </Button>
+          </form>
         </div>
 
-        {/* 2-Column Layout */}
+        {/* 2-Column Responsive Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Sidebar */}
-          <div className="lg:col-span-4 bg-white dark:bg-zinc-900 rounded-[24px] border border-black/10 dark:border-zinc-800 p-4 sm:p-5 space-y-2 shrink-0">
+          {/* Sidebar Navigation */}
+          <div className="lg:col-span-4 bg-white dark:bg-zinc-900 rounded-[24px] border border-black/10 dark:border-zinc-800 p-4 sm:p-5 space-y-2 shrink-0 shadow-xs">
             <button
               type="button"
               onClick={() => setActiveTab('orders')}
@@ -332,7 +307,7 @@ export default function MyAccountPage() {
           </div>
 
           {/* Content Area */}
-          <div className="lg:col-span-8 bg-white dark:bg-zinc-900 rounded-[24px] border border-black/10 dark:border-zinc-800 p-6 sm:p-8">
+          <div className="lg:col-span-8 bg-white dark:bg-zinc-900 rounded-[24px] border border-black/10 dark:border-zinc-800 p-6 sm:p-8 shadow-xs">
             {/* Orders Tab */}
             {activeTab === 'orders' && (
               <div className="space-y-6">
@@ -342,7 +317,7 @@ export default function MyAccountPage() {
                       Order History
                     </h2>
                     <p className="text-xs text-black/60 dark:text-zinc-400 mt-0.5">
-                      View and download official digital receipts for your verified purchases
+                      Track active shipments or print official tax receipts for your purchases
                     </p>
                   </div>
 
@@ -382,61 +357,126 @@ export default function MyAccountPage() {
                   </div>
                 ) : orders.length > 0 ? (
                   <div className="space-y-4">
-                    {orders.map((order) => (
-                      <div
-                        key={order.orderNumber}
-                        className="rounded-[16px] border border-black/10 dark:border-zinc-800 p-5 space-y-4 bg-white dark:bg-zinc-900 hover:border-black/30 dark:hover:border-zinc-700 transition-all shadow-sm"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <span className="font-mono font-bold text-base text-black dark:text-white">
-                              {order.orderNumber}
-                            </span>
-                            <span className="text-xs text-black/50 dark:text-zinc-400 block">
-                              Placed on {order.dateIssued} • {order.paymentMethod}
-                            </span>
+                    {orders.map((order) => {
+                      const orderDate = new Date(order.createdAt).toLocaleDateString('en-US', {
+                        month: 'long',
+                        day: 'numeric',
+                        year: 'numeric',
+                      });
+
+                      return (
+                        <div
+                          key={order.id}
+                          className="rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-6 space-y-4 bg-white dark:bg-zinc-900 hover:border-black/30 dark:hover:border-zinc-700 transition-all shadow-xs"
+                        >
+                          {/* Order Header Meta */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-black/10 dark:border-zinc-800">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-base text-black dark:text-white">
+                                  {order.orderNumber}
+                                </span>
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${getStatusBadge(
+                                    order.status
+                                  )}`}
+                                >
+                                  {order.status}
+                                </span>
+                              </div>
+                              <span className="text-xs text-black/50 dark:text-zinc-400 block">
+                                Placed on {orderDate} • {order.payment?.paymentMethod || 'CARD'} (
+                                {order.paymentStatus})
+                              </span>
+                            </div>
+
+                            {/* Dual CTAs: Track Shipment & View Invoice */}
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenInvoice(order)}
+                                className="h-8.5 px-3.5 rounded-[62px] border-black/10 dark:border-zinc-700 text-xs font-semibold gap-1.5 cursor-pointer bg-white dark:bg-zinc-800 hover:bg-black/5 dark:hover:bg-zinc-700"
+                              >
+                                <FileText size={13} />
+                                <span>Invoice</span>
+                              </Button>
+
+                              <Button
+                                asChild
+                                size="sm"
+                                className="h-8.5 px-4 rounded-[62px] bg-black text-white hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80 text-xs font-bold gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                <Link href={`/orders/${order.id}`}>
+                                  <Truck size={13} />
+                                  <span>Track Order</span>
+                                  <ExternalLink size={11} className="opacity-70" />
+                                </Link>
+                              </Button>
+                            </div>
                           </div>
 
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusBadge(
-                              order.status
-                            )}`}
-                          >
-                            {order.status}
-                          </span>
-                        </div>
+                          {/* Items Preview */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            {order.items.map((item) => {
+                              const primaryImg =
+                                item.variant?.product?.images?.[0]?.url || '/images/pd1.png';
 
-                        <div className="text-xs text-black/70 dark:text-zinc-300 font-medium">
-                          {order.items
-                            .map((i) => `${i.title} (${i.size}, ${i.color}) × ${i.quantity}`)
-                            .join(' • ')}
-                        </div>
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center gap-3 p-2.5 rounded-[14px] bg-[#F0F0F0]/50 dark:bg-zinc-800/40 border border-black/5 dark:border-zinc-800"
+                                >
+                                  <div className="relative w-12 h-12 shrink-0 overflow-hidden rounded-[10px] bg-white dark:bg-zinc-900 border border-black/10 dark:border-zinc-800">
+                                    <Image
+                                      src={primaryImg}
+                                      alt={item.title}
+                                      fill
+                                      sizes="48px"
+                                      className="object-cover"
+                                    />
+                                  </div>
 
-                        <div className="flex items-center justify-between pt-3 border-t border-black/10 dark:border-zinc-800">
-                          <div className="space-y-0.5">
-                            <span className="text-[11px] text-black/50 dark:text-zinc-500 uppercase tracking-wider block font-bold">
-                              Total Amount
-                            </span>
-                            <span className="font-mono font-bold text-lg text-black dark:text-white">
-                              ${order.total.toFixed(2)}
-                            </span>
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="font-bold text-xs text-black dark:text-white truncate">
+                                      {item.title}
+                                    </h4>
+                                    <p className="text-[11px] text-black/60 dark:text-zinc-400">
+                                      {item.size} • {item.color} • Qty: {item.quantity}
+                                    </p>
+                                  </div>
+
+                                  <div className="font-bold text-xs text-black dark:text-white pr-1">
+                                    ${item.total.toFixed(2)}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleOpenInvoice(order)}
-                            className="inline-flex items-center gap-1.5 text-xs font-bold text-black dark:text-white hover:underline underline-offset-4 cursor-pointer"
-                          >
-                            <FileText size={14} />
-                            <span>View Digital Invoice</span>
-                          </button>
+                          {/* Order Footer Summary */}
+                          <div className="flex items-center justify-between pt-3 border-t border-black/10 dark:border-zinc-800 text-xs text-black/60 dark:text-zinc-400">
+                            <span className="truncate max-w-[280px] sm:max-w-md">
+                              Shipping to:{' '}
+                              <strong className="text-black dark:text-white">
+                                {order.shippingAddress}
+                              </strong>
+                            </span>
+                            <div className="text-right shrink-0">
+                              <span>Total: </span>
+                              <span className="font-mono font-bold text-sm sm:text-base text-black dark:text-white">
+                                ${order.total.toFixed(2)} USD
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="w-full py-16 px-6 flex flex-col items-center justify-center text-center gap-4 bg-[#F0F0F0]/50 dark:bg-zinc-900/50 rounded-[20px] border border-black/10 dark:border-zinc-800">
-                    <div className="w-16 h-16 rounded-full bg-white dark:bg-zinc-800 border border-black/10 dark:border-zinc-700 flex items-center justify-center text-black/60 dark:text-zinc-400 shadow-sm">
+                    <div className="w-16 h-16 rounded-full bg-white dark:bg-zinc-800 border border-black/10 dark:border-zinc-700 flex items-center justify-center text-black/60 dark:text-zinc-400 shadow-xs">
                       <ShoppingBag className="w-8 h-8" />
                     </div>
 
@@ -571,7 +611,7 @@ export default function MyAccountPage() {
                     {addresses.map((addr) => (
                       <div
                         key={addr.id}
-                        className="rounded-[16px] border border-black/10 dark:border-zinc-800 p-5 flex items-center justify-between bg-white dark:bg-zinc-900 hover:border-black/30 dark:hover:border-zinc-700 transition-all shadow-sm"
+                        className="rounded-[16px] border border-black/10 dark:border-zinc-800 p-5 flex items-center justify-between bg-white dark:bg-zinc-900 hover:border-black/30 dark:hover:border-zinc-700 transition-all shadow-xs"
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -635,13 +675,17 @@ export default function MyAccountPage() {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* Invoice Modal Mount */}
       <InvoiceModal
+        order={selectedOrderForInvoice}
         isOpen={isInvoiceOpen}
-        onClose={() => setIsInvoiceOpen(false)}
-        invoice={activeInvoice}
+        onClose={() => {
+          setIsInvoiceOpen(false);
+          setSelectedOrderForInvoice(null);
+        }}
       />
 
+      {/* Address Modal Mount */}
       <AddressModal
         isOpen={isAddressModalOpen}
         onClose={() => setIsAddressModalOpen(false)}

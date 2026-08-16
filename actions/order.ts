@@ -6,10 +6,16 @@ import { auth } from '@clerk/nextjs/server';
 import { prisma, withDbRetry } from '@/lib/prisma';
 import { verifyAdmin } from '@/lib/admin-auth';
 import { OrderStatus, PaymentStatus, PaymentMethod, Prisma } from '@prisma/client';
+import { z } from 'zod';
+
+// ==========================================
+// 1. CANONICAL PRISMA TYPES
+// ==========================================
 
 export type DbOrderWithItems = Prisma.OrderGetPayload<{
   include: {
     payment: true;
+    user: true;
     items: {
       include: {
         variant: {
@@ -25,6 +31,13 @@ export type DbOrderWithItems = Prisma.OrderGetPayload<{
     };
   };
 }>;
+
+export interface ActionResponse<T = undefined> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
 
 export interface GetUserOrdersParams {
   userId?: string;
@@ -64,6 +77,11 @@ export interface AdminOrderListResponse {
     itemsCount: number;
     createdAt: Date;
   }>;
+  data?: {
+    orders: DbOrderWithItems[];
+    totalCount: number;
+    totalPages: number;
+  };
   pagination: {
     total: number;
     page: number;
@@ -73,14 +91,12 @@ export interface AdminOrderListResponse {
   error?: string;
 }
 
-export interface ActionResponse<T = undefined> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
 export interface CartCheckoutItem {
   variantId: string;
+  productId?: string;
+  title?: string;
+  size?: string;
+  color?: string;
   quantity: number;
   price: number;
 }
@@ -97,6 +113,7 @@ export interface CreateCodOrderInput {
   shippingFee: number;
   discount: number;
   total: number;
+  userId?: string | null;
 }
 
 export interface CreateCheckoutOrderInput {
@@ -111,6 +128,7 @@ export interface CreateCheckoutOrderInput {
   shippingFee: number;
   discount: number;
   total: number;
+  userId?: string | null;
   stripePaymentIntentId?: string;
 }
 
@@ -121,35 +139,69 @@ export interface CreateCheckoutOrderResponse {
   error?: string;
 }
 
+// ==========================================
+// 2. SCHEMAS
+// ==========================================
+
+const codOrderSchema = z.object({
+  customerName: z.string().trim().min(2, 'Customer name is required'),
+  customerEmail: z.string().trim().email('Valid email address is required'),
+  shippingAddress: z.string().trim().min(5, 'Valid shipping address is required'),
+  city: z.string().trim().min(1, 'City is required'),
+  postalCode: z.string().trim().min(1, 'Postal code is required'),
+  country: z.string().default('United States'),
+  items: z
+    .array(
+      z.object({
+        variantId: z.string().min(1, 'Variant ID is required'),
+        productId: z.string().optional(),
+        title: z.string().optional(),
+        size: z.string().optional(),
+        color: z.string().optional(),
+        quantity: z.number().int().positive('Quantity must be at least 1'),
+        price: z.number().nonnegative('Price cannot be negative'),
+      })
+    )
+    .min(1, 'Order must have at least one item'),
+  subtotal: z.number().nonnegative(),
+  shippingFee: z.number().nonnegative(),
+  discount: z.number().nonnegative(),
+  total: z.number().positive(),
+  userId: z.string().optional().nullable(),
+});
+
+// ==========================================
+// 3. PAYMENT SETTLEMENT & COD
+// ==========================================
+
 /**
- * 1. Immediate Pre-Paid Settlement (Stripe Card Checkout)
+ * Immediate Pre-Paid Settlement (Stripe Card Checkout)
  * Marks payment as SUCCEEDED immediately upon successful card authorization.
  */
 export async function confirmStripeOrderPayment(
   orderId: string,
   paymentIntentId: string
-): Promise<ActionResponse<{ orderNumber: string }>> {
+): Promise<ActionResponse<{ orderId: string; orderNumber: string }>> {
   try {
     return await withDbRetry(async () => {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: { items: true, payment: true },
-      });
+      const order = await prisma.$transaction(async (tx) => {
+        const targetOrder = await tx.order.findUnique({
+          where: { id: orderId },
+          include: { items: true },
+        });
 
-      if (!order) {
-        return { success: false, error: 'Order record not found.' };
-      }
+        if (!targetOrder) {
+          throw new Error('Order record not found.');
+        }
 
-      if (order.paymentStatus === PaymentStatus.SUCCEEDED) {
-        return { success: true, data: { orderNumber: order.orderNumber } };
-      }
+        if (targetOrder.paymentStatus === PaymentStatus.SUCCEEDED) {
+          return targetOrder;
+        }
 
-      await prisma.$transaction(async (tx) => {
-        // 1. Atomically deduct inventory for every purchased variant
-        for (const item of order.items) {
+        // Deduct inventory stock for each purchased item
+        for (const item of targetOrder.items) {
           const variant = await tx.productVariant.findUnique({
             where: { id: item.variantId },
-            select: { id: true, stockQuantity: true },
           });
 
           if (variant) {
@@ -164,28 +216,37 @@ export async function confirmStripeOrderPayment(
           }
         }
 
-        // 2. Stripe processing fee calculation: 2.9% + $0.30
-        const fee = Number((order.total * 0.029 + 0.3).toFixed(2));
-        const netAmount = Number((order.total - fee).toFixed(2));
+        const fee = Number((targetOrder.total * 0.029 + 0.3).toFixed(2));
+        const netAmount = Number((targetOrder.total - fee).toFixed(2));
 
-        // 3. Card is charged -> Immediate SUCCEEDED payment & PROCESSING order status
-        await tx.order.update({
+        const updatedOrder = await tx.order.update({
           where: { id: orderId },
           data: {
             status: OrderStatus.PROCESSING,
             paymentStatus: PaymentStatus.SUCCEEDED,
+            expiresAt: null,
           },
         });
 
-        await tx.payment.updateMany({
+        await tx.payment.upsert({
           where: { orderId },
-          data: {
+          update: {
             status: PaymentStatus.SUCCEEDED,
             stripePaymentIntentId: paymentIntentId,
             fee,
             netAmount,
           },
+          create: {
+            orderId,
+            status: PaymentStatus.SUCCEEDED,
+            stripePaymentIntentId: paymentIntentId,
+            amount: targetOrder.total,
+            fee,
+            netAmount,
+          },
         });
+
+        return updatedOrder;
       });
 
       revalidatePath('/admin/products');
@@ -195,9 +256,16 @@ export async function confirmStripeOrderPayment(
       revalidatePath('/admin/payments/transactions');
       revalidatePath('/admin');
       revalidatePath('/shop');
+      revalidatePath(`/orders/${orderId}`);
       revalidatePath('/account');
 
-      return { success: true, data: { orderNumber: order.orderNumber } };
+      return {
+        success: true,
+        data: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        },
+      };
     });
   } catch (error) {
     console.error('[CONFIRM_STRIPE_PAYMENT_ERROR]:', error);
@@ -209,31 +277,31 @@ export async function confirmStripeOrderPayment(
 }
 
 /**
- * 2. Deferred Settlement (Cash on Delivery)
- * Reserves stock immediately, but initializes payment as PENDING until doorstep collection.
+ * Deferred Settlement (Cash on Delivery)
+ * Reserves stock immediately, initializing payment as PENDING until doorstep collection.
  */
 export async function createCashOnDeliveryOrder(
   input: CreateCodOrderInput
-): Promise<ActionResponse<{ orderNumber: string }>> {
+): Promise<ActionResponse<{ orderId: string; orderNumber: string }>> {
   try {
-    const { userId } = await auth();
-
-    if (!input.items || input.items.length === 0) {
-      return { success: false, error: 'Cannot process checkout with an empty cart.' };
-    }
+    const validated = codOrderSchema.parse(input);
+    const { userId: sessionUserId } = await auth().catch(() => ({ userId: null }));
+    const effectiveUserId = validated.userId || sessionUserId;
 
     return await withDbRetry(async () => {
-      const createdOrder = await prisma.$transaction(async (tx) => {
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const order = await prisma.$transaction(async (tx) => {
         const orderItemsToCreate: Prisma.OrderItemCreateWithoutOrderInput[] = [];
 
-        for (const item of input.items) {
+        for (const item of validated.items) {
           const variant = await tx.productVariant.findUnique({
             where: { id: item.variantId },
             include: { product: { select: { title: true } } },
           });
 
           if (!variant) {
-            throw new Error(`Variant ${item.variantId} was not found.`);
+            throw new Error(`Product variant "${item.variantId}" was not found.`);
           }
 
           if (variant.stockQuantity < item.quantity) {
@@ -242,7 +310,6 @@ export async function createCashOnDeliveryOrder(
             );
           }
 
-          // Atomically lock and decrement variant stock
           await tx.productVariant.update({
             where: { id: item.variantId },
             data: {
@@ -263,15 +330,11 @@ export async function createCashOnDeliveryOrder(
           });
         }
 
-        const timestamp = Date.now().toString().slice(-6);
-        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-        const orderNumber = `ORD-${timestamp}-${randomSuffix}`;
-
         let userConnectInput: Prisma.UserCreateNestedOneWithoutOrdersInput | undefined = undefined;
-        if (userId) {
+        if (effectiveUserId) {
           const userExists = await tx.user.findFirst({
             where: {
-              OR: [{ id: userId }, { email: input.customerEmail.toLowerCase() }],
+              OR: [{ id: effectiveUserId }, { email: validated.customerEmail.toLowerCase() }],
             },
             select: { id: true },
           });
@@ -283,24 +346,25 @@ export async function createCashOnDeliveryOrder(
         return await tx.order.create({
           data: {
             orderNumber,
-            customerName: input.customerName,
-            customerEmail: input.customerEmail,
-            shippingAddress: `${input.shippingAddress}, ${input.city}, ${input.postalCode}, ${input.country}`,
-            subtotal: input.subtotal,
-            shippingFee: input.shippingFee,
-            discount: input.discount,
-            total: input.total,
-            status: OrderStatus.PENDING,
-            paymentStatus: PaymentStatus.PENDING, // COD remains PENDING until physical handover
+            customerName: validated.customerName,
+            customerEmail: validated.customerEmail,
+            shippingAddress: `${validated.shippingAddress}, ${validated.city}, ${validated.postalCode}, ${validated.country}`,
+            subtotal: validated.subtotal,
+            shippingFee: validated.shippingFee,
+            discount: validated.discount,
+            total: validated.total,
+            status: OrderStatus.PROCESSING,
+            paymentStatus: PaymentStatus.PENDING,
+            expiresAt: null,
             ...(userConnectInput ? { user: userConnectInput } : {}),
             items: {
               create: orderItemsToCreate,
             },
             payment: {
               create: {
-                amount: input.total,
+                amount: validated.total,
                 fee: 0,
-                netAmount: input.total,
+                netAmount: validated.total,
                 status: PaymentStatus.PENDING,
                 paymentMethod: PaymentMethod.COD,
               },
@@ -317,7 +381,13 @@ export async function createCashOnDeliveryOrder(
       revalidatePath('/shop');
       revalidatePath('/account');
 
-      return { success: true, data: { orderNumber: createdOrder.orderNumber } };
+      return {
+        success: true,
+        data: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        },
+      };
     });
   } catch (error) {
     console.error('[CREATE_COD_ORDER_ERROR]:', error);
@@ -329,143 +399,14 @@ export async function createCashOnDeliveryOrder(
 }
 
 /**
- * 3. Lifecycle-Aware Admin Status Dispatcher
- * Properly handles COD doorstep collection, Stripe pre-paid settlements, and restocks.
- */
-export async function updateOrderStatus(
-  orderId: string,
-  newStatus: OrderStatus
-): Promise<ActionResponse<{ currentStatus: OrderStatus; paymentStatus: PaymentStatus }>> {
-  try {
-    await verifyAdmin();
-
-    return await withDbRetry(async () => {
-      const updatedData = await prisma.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-          include: { items: true, payment: true },
-        });
-
-        if (!order) {
-          throw new Error(`Order "${orderId}" was not found.`);
-        }
-
-        const isCOD = order.payment?.paymentMethod === PaymentMethod.COD;
-        const isStripe = order.payment?.paymentMethod === PaymentMethod.STRIPE;
-
-        // A. Inventory Adjustments on Cancellation / Re-opening
-        if (newStatus === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
-          // Restock variant quantities
-          for (const item of order.items) {
-            await tx.productVariant.update({
-              where: { id: item.variantId },
-              data: {
-                stockQuantity: { increment: item.quantity },
-              },
-            });
-          }
-        } else if (order.status === OrderStatus.CANCELLED && newStatus !== OrderStatus.CANCELLED) {
-          // Deduct quantities if uncancelled
-          for (const item of order.items) {
-            await tx.productVariant.update({
-              where: { id: item.variantId },
-              data: {
-                stockQuantity: { decrement: item.quantity },
-              },
-            });
-          }
-        }
-
-        // B. Determine New Payment Status Based on Channel
-        let nextPaymentStatus: PaymentStatus = order.paymentStatus;
-
-        if (newStatus === OrderStatus.DELIVERED) {
-          // COD: Cash is collected upon physical delivery -> Transition to SUCCEEDED
-          if (isCOD && order.paymentStatus === PaymentStatus.PENDING) {
-            nextPaymentStatus = PaymentStatus.SUCCEEDED;
-          }
-        } else if (newStatus === OrderStatus.CANCELLED) {
-          // Pre-paid Card: Customer was already charged -> Transition to REFUNDED
-          if (isStripe && order.paymentStatus === PaymentStatus.SUCCEEDED) {
-            nextPaymentStatus = PaymentStatus.REFUNDED;
-          }
-          // Post-paid COD: No money was collected -> Transition to FAILED/CANCELLED (not refunded)
-          else if (isCOD && order.paymentStatus === PaymentStatus.PENDING) {
-            nextPaymentStatus = PaymentStatus.FAILED;
-          }
-        }
-
-        const calculatedFee = Number((order.total * 0.029 + 0.3).toFixed(2));
-        const calculatedNet = Number((order.total - calculatedFee).toFixed(2));
-
-        const updatedOrder = await tx.order.update({
-          where: { id: orderId },
-          data: {
-            status: newStatus,
-            paymentStatus: nextPaymentStatus,
-          },
-        });
-
-        // C. Synchronize the Payment Record
-        if (nextPaymentStatus === PaymentStatus.SUCCEEDED && order.paymentStatus !== PaymentStatus.SUCCEEDED) {
-          await tx.payment.updateMany({
-            where: { orderId },
-            data: {
-              status: PaymentStatus.SUCCEEDED,
-              fee: isStripe ? calculatedFee : 0,
-              netAmount: isStripe ? calculatedNet : order.total,
-            },
-          });
-        } else if (nextPaymentStatus === PaymentStatus.REFUNDED) {
-          await tx.payment.updateMany({
-            where: { orderId },
-            data: {
-              status: PaymentStatus.REFUNDED,
-            },
-          });
-        } else if (nextPaymentStatus === PaymentStatus.FAILED) {
-          await tx.payment.updateMany({
-            where: { orderId },
-            data: {
-              status: PaymentStatus.FAILED,
-            },
-          });
-        }
-
-        return {
-          currentStatus: updatedOrder.status,
-          paymentStatus: updatedOrder.paymentStatus,
-        };
-      });
-
-      revalidatePath('/admin/products');
-      revalidatePath('/admin/orders');
-      revalidatePath(`/admin/orders/${orderId}`);
-      revalidatePath('/admin/payments');
-      revalidatePath('/admin/payments/transactions');
-      revalidatePath('/admin');
-      revalidatePath('/shop');
-      revalidatePath('/account');
-
-      return { success: true, data: updatedData };
-    });
-  } catch (error) {
-    console.error('[ACTIONS_UPDATE_ORDER_STATUS_ERROR]:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update order status.',
-    };
-  }
-}
-
-/**
- * 4. General Server Action: createCheckoutOrder (Combined Gateway)
+ * Combined Gateway Order Creator
  */
 export async function createCheckoutOrder(
   input: CreateCheckoutOrderInput
 ): Promise<CreateCheckoutOrderResponse> {
   try {
-    const { userId } = await auth();
+    const { userId: sessionUserId } = await auth().catch(() => ({ userId: null }));
+    const effectiveUserId = input.userId || sessionUserId;
 
     if (!input.items || input.items.length === 0) {
       return { success: false, error: 'Cannot process checkout with an empty cart.' };
@@ -531,10 +472,10 @@ export async function createCheckoutOrder(
         const netAmount = Number((input.total - fee).toFixed(2));
 
         let userConnectInput: Prisma.UserCreateNestedOneWithoutOrdersInput | undefined = undefined;
-        if (userId) {
+        if (effectiveUserId) {
           const userExists = await tx.user.findFirst({
             where: {
-              OR: [{ id: userId }, { email: input.customerEmail.toLowerCase() }],
+              OR: [{ id: effectiveUserId }, { email: input.customerEmail.toLowerCase() }],
             },
             select: { id: true },
           });
@@ -555,6 +496,7 @@ export async function createCheckoutOrder(
             total: input.total,
             status: initialOrderStatus,
             paymentStatus: initialPaymentStatus,
+            expiresAt: null,
             ...(userConnectInput ? { user: userConnectInput } : {}),
             items: {
               create: orderItemsToCreate,
@@ -597,14 +539,18 @@ export async function createCheckoutOrder(
   }
 }
 
+// ==========================================
+// 4. CUSTOMER ACTIONS
+// ==========================================
+
 /**
- * 5. Customer Action: Retrieves all orders for the user by session ID, explicit userId, or email
+ * Retrieves all orders belonging to a customer by session ID, explicit userId, or email
  */
 export async function getUserOrders(
   params?: GetUserOrdersParams
 ): Promise<GetUserOrdersResponse> {
   try {
-    const { userId: sessionUserId } = await auth();
+    const { userId: sessionUserId } = await auth().catch(() => ({ userId: null }));
     const targetUserId = params?.userId || sessionUserId;
     const targetEmail = params?.email;
 
@@ -637,6 +583,7 @@ export async function getUserOrders(
         orderBy: { createdAt: 'desc' },
         include: {
           payment: true,
+          user: true,
           items: {
             include: {
               variant: {
@@ -671,7 +618,65 @@ export async function getUserOrders(
 }
 
 /**
- * 6. Admin Action: Retrieves paginated, filterable orders with customer details
+ * Retrieves a single order by ID or orderNumber for tracking
+ */
+export async function getOrderById(
+  orderIdOrNumber: string
+): Promise<ActionResponse<DbOrderWithItems | null>> {
+  try {
+    return await withDbRetry(async () => {
+      const order = await prisma.order.findFirst({
+        where: {
+          OR: [{ id: orderIdOrNumber }, { orderNumber: orderIdOrNumber }],
+        },
+        include: {
+          payment: true,
+          user: true,
+          items: {
+            include: {
+              variant: {
+                include: {
+                  product: {
+                    include: {
+                      images: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        return {
+          success: false,
+          data: null,
+          error: 'Order not found.',
+        };
+      }
+
+      return {
+        success: true,
+        data: order,
+      };
+    });
+  } catch (error) {
+    console.error('[ACTIONS_GET_ORDER_BY_ID_ERROR]:', error);
+    return {
+      success: false,
+      data: null,
+      error: 'Failed to retrieve order details.',
+    };
+  }
+}
+
+// ==========================================
+// 5. ADMIN ACTIONS
+// ==========================================
+
+/**
+ * Retrieves paginated, filterable orders with customer details
  */
 export async function getAdminOrders(
   params: AdminOrderFilterParams = {}
@@ -715,11 +720,20 @@ export async function getAdminOrders(
           orderBy: { createdAt: 'desc' },
           include: {
             items: {
-              select: { quantity: true },
+              include: {
+                variant: {
+                  include: {
+                    product: {
+                      include: {
+                        images: true,
+                      },
+                    },
+                  },
+                },
+              },
             },
-            payment: {
-              select: { paymentMethod: true },
-            },
+            payment: true,
+            user: true,
           },
         }),
       ]);
@@ -744,6 +758,11 @@ export async function getAdminOrders(
       return {
         success: true,
         orders,
+        data: {
+          orders: rawOrders,
+          totalCount: total,
+          totalPages: Math.ceil(total / limit) || 1,
+        },
         pagination: {
           total,
           page,
@@ -764,7 +783,7 @@ export async function getAdminOrders(
 }
 
 /**
- * 7. Admin Action: Fetch single order by ID or Order Number with retry protection
+ * Fetch single order by ID or Order Number with relations
  */
 export async function getAdminOrderById(orderIdOrNumber: string) {
   try {
@@ -794,7 +813,6 @@ export async function getAdminOrderById(orderIdOrNumber: string) {
                     include: {
                       images: {
                         orderBy: { isPrimary: 'desc' },
-                        take: 1,
                       },
                     },
                   },
@@ -806,22 +824,146 @@ export async function getAdminOrderById(orderIdOrNumber: string) {
       });
 
       if (!order) {
-        return { success: false, error: 'Order not found.' };
+        return { success: false, data: null, order: null, error: 'Order not found.' };
       }
 
-      return { success: true, order };
+      return { success: true, data: order, order };
     });
   } catch (error) {
     console.error('[ACTIONS_GET_ADMIN_ORDER_BY_ID_ERROR]:', error);
     return {
       success: false,
+      data: null,
+      order: null,
       error: error instanceof Error ? error.message : 'Failed to retrieve order details.',
     };
   }
 }
 
 /**
- * 8. Admin Action: Explicit Payment Status Override
+ * Lifecycle-Aware Admin Status Dispatcher
+ */
+export async function updateOrderStatus(
+  orderId: string,
+  newStatus: OrderStatus
+): Promise<ActionResponse<{ currentStatus: OrderStatus; paymentStatus: PaymentStatus }>> {
+  try {
+    await verifyAdmin();
+
+    return await withDbRetry(async () => {
+      const updatedData = await prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: { items: true, payment: true },
+        });
+
+        if (!order) {
+          throw new Error(`Order "${orderId}" was not found.`);
+        }
+
+        const isCOD = order.payment?.paymentMethod === PaymentMethod.COD;
+        const isStripe = order.payment?.paymentMethod === PaymentMethod.STRIPE;
+
+        // Inventory Adjustments on Cancellation / Re-opening
+        if (newStatus === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
+          for (const item of order.items) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: {
+                stockQuantity: { increment: item.quantity },
+              },
+            });
+          }
+        } else if (order.status === OrderStatus.CANCELLED && newStatus !== OrderStatus.CANCELLED) {
+          for (const item of order.items) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: {
+                stockQuantity: { decrement: item.quantity },
+              },
+            });
+          }
+        }
+
+        let nextPaymentStatus: PaymentStatus = order.paymentStatus;
+
+        if (newStatus === OrderStatus.DELIVERED) {
+          if (isCOD && order.paymentStatus === PaymentStatus.PENDING) {
+            nextPaymentStatus = PaymentStatus.SUCCEEDED;
+          }
+        } else if (newStatus === OrderStatus.CANCELLED) {
+          if (isStripe && order.paymentStatus === PaymentStatus.SUCCEEDED) {
+            nextPaymentStatus = PaymentStatus.REFUNDED;
+          } else if (isCOD && order.paymentStatus === PaymentStatus.PENDING) {
+            nextPaymentStatus = PaymentStatus.FAILED;
+          }
+        }
+
+        const calculatedFee = Number((order.total * 0.029 + 0.3).toFixed(2));
+        const calculatedNet = Number((order.total - calculatedFee).toFixed(2));
+
+        const updatedOrder = await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: newStatus,
+            paymentStatus: nextPaymentStatus,
+            expiresAt: newStatus === OrderStatus.CANCELLED ? null : order.expiresAt,
+          },
+        });
+
+        if (nextPaymentStatus === PaymentStatus.SUCCEEDED && order.paymentStatus !== PaymentStatus.SUCCEEDED) {
+          await tx.payment.updateMany({
+            where: { orderId },
+            data: {
+              status: PaymentStatus.SUCCEEDED,
+              fee: isStripe ? calculatedFee : 0,
+              netAmount: isStripe ? calculatedNet : order.total,
+            },
+          });
+        } else if (nextPaymentStatus === PaymentStatus.REFUNDED) {
+          await tx.payment.updateMany({
+            where: { orderId },
+            data: {
+              status: PaymentStatus.REFUNDED,
+            },
+          });
+        } else if (nextPaymentStatus === PaymentStatus.FAILED) {
+          await tx.payment.updateMany({
+            where: { orderId },
+            data: {
+              status: PaymentStatus.FAILED,
+            },
+          });
+        }
+
+        return {
+          currentStatus: updatedOrder.status,
+          paymentStatus: updatedOrder.paymentStatus,
+        };
+      });
+
+      revalidatePath('/admin/products');
+      revalidatePath('/admin/orders');
+      revalidatePath(`/admin/orders/${orderId}`);
+      revalidatePath('/admin/payments');
+      revalidatePath('/admin/payments/transactions');
+      revalidatePath('/admin');
+      revalidatePath('/shop');
+      revalidatePath('/account');
+
+      return { success: true, data: updatedData };
+    });
+  } catch (error) {
+    console.error('[ACTIONS_UPDATE_ORDER_STATUS_ERROR]:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update order status.',
+    };
+  }
+}
+
+/**
+ * Admin Action: Explicit Payment Status Override
  */
 export async function updateOrderPaymentStatus(
   orderId: string,

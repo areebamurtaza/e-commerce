@@ -1,5 +1,30 @@
 import { Brand, NavItem } from '@/types';
 
+// lib/constants.ts
+
+export const ORDER_CONFIG = {
+  // Stock hold window (e.g. 45 or 60 minutes instead of 30)
+  RESERVATION_EXPIRY_MINUTES: Number(process.env.NEXT_PUBLIC_RESERVATION_MINUTES) || 45,
+  
+  // Rate limiting for checkout intent
+  CHECKOUT_RATE_LIMIT_MAX: 10,
+  CHECKOUT_RATE_LIMIT_WINDOW_SECONDS: 60,
+  
+  // Delivery fee rules
+  FREE_SHIPPING_THRESHOLD: 200,
+  STANDARD_SHIPPING_FEE: 15.0,
+  
+  // Stripe standard fee estimate (2.9% + $0.30)
+  STRIPE_FEE_PERCENT: 0.029,
+  STRIPE_FEE_FIXED: 0.3,
+} as const;
+
+export const DB_TIMEOUT_CONFIG = {
+  MAX_RETRIES: 3,
+  INITIAL_BACKOFF_MS: 300,
+  MAX_BACKOFF_MS: 2000,
+  TRANSACTION_TIMEOUT_MS: 15000, // 15s max transaction duration
+} as const;
 export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Shop',

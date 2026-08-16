@@ -1,163 +1,318 @@
 // actions/review.ts
 'use server';
 
-import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
-import { z } from 'zod';
+import { prisma, withDbRetry } from '@/lib/prisma';
+import { createReviewSchema, CreateReviewInput } from '@/schemas/review';
+import { currentUser } from '@clerk/nextjs/server';
 
-const createReviewSchema = z.object({
-  productId: z.string().min(1, 'Product ID is required'),
-  userId: z.string().optional(),
-  author: z.string().min(2, 'Name must be at least 2 characters'),
-  rating: z.number().int().min(1).max(5, 'Rating must be between 1 and 5'),
-  comment: z.string().min(5, 'Comment must be at least 5 characters'),
-});
+export interface RatingBreakdownItem {
+  stars: number;
+  count: number;
+  percentage: number;
+}
 
-export type CreateReviewInput = z.infer<typeof createReviewSchema>;
+export interface ReviewAggregateStats {
+  averageRating: number;
+  totalReviews: number;
+  breakdown: RatingBreakdownItem[];
+}
 
-export interface ReviewResponse {
+export interface ReviewWithUserData {
+  id: string;
+  productId: string;
+  userId: string | null;
+  author: string;
+  rating: number;
+  comment: string;
+  createdAt: Date;
+  isVerified: boolean;
+  user: {
+    name: string | null;
+    imageUrl: string | null;
+  } | null;
+}
+
+export interface ProductReviewsResult {
+  success: boolean;
+  reviews: ReviewWithUserData[];
+  stats: ReviewAggregateStats;
+  error?: string;
+}
+
+export interface ReviewActionResponse {
   success: boolean;
   message?: string;
-  data?: unknown;
+  data?: ReviewWithUserData;
   error?: string;
 }
 
 /**
- * Fetch all reviews for a specific product
+ * Detects Next.js dynamic server execution errors to avoid swallowing SSR bailouts
  */
-export async function getProductReviews(productId: string) {
-  try {
-    const reviews = await prisma.review.findMany({
-      where: { productId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: {
-            name: true,
-            imageUrl: true,
-          },
-        },
-      },
-    });
+function isDynamicServerError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  return (
+    ('digest' in err && (err as { digest?: string }).digest === 'DYNAMIC_SERVER_USAGE') ||
+    ('message' in err &&
+      typeof (err as { message?: string }).message === 'string' &&
+      (err as { message: string }).message.includes('Dynamic server usage'))
+  );
+}
 
-    return {
-      success: true,
-      data: reviews,
-    };
+/**
+ * Fetches all reviews and computes the statistical breakdown for a product
+ */
+export async function getProductReviews(productId: string): Promise<ProductReviewsResult> {
+  try {
+    const cleanProductId = productId.trim();
+
+    return await withDbRetry(async () => {
+      // 1. Fetch reviews with user relation
+      const [reviewsRaw, productRecord, deliveredOrderCount] = await Promise.all([
+        prisma.review.findMany({
+          where: { productId: cleanProductId },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: {
+              select: {
+                name: true,
+                imageUrl: true,
+              },
+            },
+          },
+        }),
+        prisma.product.findUnique({
+          where: { id: cleanProductId },
+          select: { id: true, slug: true },
+        }),
+        prisma.orderItem.count({
+          where: {
+            variant: { productId: cleanProductId },
+            order: { status: 'DELIVERED' },
+          },
+        }),
+      ]);
+
+      const totalReviews = reviewsRaw.length;
+      const ratingCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      let ratingSum = 0;
+
+      const formattedReviews: ReviewWithUserData[] = reviewsRaw.map((rev) => {
+        const star = Math.min(5, Math.max(1, rev.rating));
+        ratingCounts[star] = (ratingCounts[star] || 0) + 1;
+        ratingSum += star;
+
+        return {
+          id: rev.id,
+          productId: rev.productId,
+          userId: rev.userId,
+          author: rev.author,
+          rating: rev.rating,
+          comment: rev.comment,
+          createdAt: rev.createdAt,
+          isVerified: Boolean(rev.userId && deliveredOrderCount > 0),
+          user: rev.user,
+        };
+      });
+
+      const averageRating = totalReviews > 0 ? Math.round((ratingSum / totalReviews) * 10) / 10 : 0;
+
+      const breakdown: RatingBreakdownItem[] = [5, 4, 3, 2, 1].map((stars) => {
+        const count = ratingCounts[stars] || 0;
+        const percentage = totalReviews > 0 ? Math.round((count / totalReviews) * 100) : 0;
+        return { stars, count, percentage };
+      });
+
+      return {
+        success: true,
+        reviews: formattedReviews,
+        stats: {
+          averageRating,
+          totalReviews,
+          breakdown,
+        },
+      };
+    });
   } catch (error) {
-    console.error('[ACTIONS_GET_REVIEWS_ERROR]:', error);
+    if (isDynamicServerError(error)) throw error;
+    console.error('[ACTIONS_GET_PRODUCT_REVIEWS_ERROR]:', error);
     return {
       success: false,
-      error: 'Failed to retrieve customer reviews.',
+      reviews: [],
+      stats: {
+        averageRating: 0,
+        totalReviews: 0,
+        breakdown: [5, 4, 3, 2, 1].map((stars) => ({ stars, count: 0, percentage: 0 })),
+      },
+      error: 'Failed to load product reviews.',
     };
   }
 }
 
 /**
- * Creates a review and atomically updates the product's overall rating
+ * Creates a review and atomically recalculates the parent product's rating and review count
  */
-export async function createProductReview(input: CreateReviewInput): Promise<ReviewResponse> {
+export async function createProductReview(input: CreateReviewInput): Promise<ReviewActionResponse> {
   try {
     const validated = createReviewSchema.parse(input);
+    const authUser = await currentUser().catch(() => null);
 
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Insert review
-      const review = await tx.review.create({
-        data: {
-          productId: validated.productId,
-          userId: validated.userId || null,
-          author: validated.author.trim(),
-          rating: validated.rating,
-          comment: validated.comment.trim(),
-        },
+    const verifiedUserId = authUser?.id || validated.userId || null;
+    const authorName = authUser
+      ? `${authUser.firstName || ''} ${authUser.lastName || ''}`.trim() || validated.author
+      : validated.author;
+
+    return await withDbRetry(async () => {
+      const transactionResult = await prisma.$transaction(async (tx) => {
+        // 1. Create the new review entry
+        const newReview = await tx.review.create({
+          data: {
+            productId: validated.productId,
+            userId: verifiedUserId,
+            author: authorName,
+            rating: validated.rating,
+            comment: validated.comment,
+          },
+          include: {
+            user: {
+              select: {
+                name: true,
+                imageUrl: true,
+              },
+            },
+          },
+        });
+
+        // 2. Aggregate average rating and total review count
+        const aggregateStats = await tx.review.aggregate({
+          where: { productId: validated.productId },
+          _avg: { rating: true },
+          _count: { id: true },
+        });
+
+        const calculatedAvg = aggregateStats._avg.rating ?? validated.rating;
+        const roundedRating = Math.round(calculatedAvg * 10) / 10;
+        const totalCount = aggregateStats._count.id ?? 1;
+
+        // 3. Update the parent Product record
+        const updatedProduct = await tx.product.update({
+          where: { id: validated.productId },
+          data: {
+            rating: roundedRating,
+            reviewCount: totalCount,
+          },
+          select: {
+            id: true,
+            slug: true,
+          },
+        });
+
+        // 4. Check if user has purchased the item for verified badge
+        let isVerifiedBuyer = false;
+        if (verifiedUserId) {
+          const purchaseCount = await tx.orderItem.count({
+            where: {
+              variant: { productId: validated.productId },
+              order: {
+                userId: verifiedUserId,
+                status: 'DELIVERED',
+              },
+            },
+          });
+          isVerifiedBuyer = purchaseCount > 0;
+        }
+
+        return {
+          review: {
+            ...newReview,
+            isVerified: isVerifiedBuyer,
+          },
+          product: updatedProduct,
+        };
       });
 
-      // 2. Recalculate average rating & review count for the product
-      const reviewStats = await tx.review.aggregate({
-        where: { productId: validated.productId },
-        _avg: { rating: true },
-        _count: { id: true },
-      });
+      // 5. Trigger Next.js on-demand cache revalidation
+      revalidatePath(`/product/${transactionResult.product.id}`);
+      revalidatePath(`/product/${transactionResult.product.slug}`);
+      revalidatePath(`/admin/products/${transactionResult.product.id}`);
+      revalidatePath('/shop');
+      revalidatePath('/');
 
-      const updatedRating = Math.round((reviewStats._avg.rating || validated.rating) * 10) / 10;
-      const updatedCount = reviewStats._count.id || 1;
-
-      // 3. Update the Product model
-      await tx.product.update({
-        where: { id: validated.productId },
-        data: {
-          rating: updatedRating,
-          reviewCount: updatedCount,
-        },
-      });
-
-      return review;
-    });
-
-    // 4. Revalidate cache on affected routes
-    revalidatePath(`/product/${validated.productId}`);
-    revalidatePath(`/admin/products/${validated.productId}`);
-    revalidatePath('/shop');
-    revalidatePath('/');
-
-    return {
-      success: true,
-      message: 'Review submitted successfully.',
-      data: result,
-    };
-  } catch (error) {
-    if (error instanceof z.ZodError) {
       return {
-        success: false,
-        error: error.issues[0]?.message || 'Validation error',
+        success: true,
+        message: 'Your review has been published successfully.',
+        data: transactionResult.review,
       };
-    }
-
-    console.error('[ACTIONS_CREATE_REVIEW_ERROR]:', error);
+    });
+  } catch (error) {
+    if (isDynamicServerError(error)) throw error;
+    console.error('[ACTIONS_CREATE_PRODUCT_REVIEW_ERROR]:', error);
     return {
       success: false,
-      error: 'Failed to submit review. Please try again.',
+      error: error instanceof Error ? error.message : 'Failed to submit review.',
     };
   }
 }
 
 /**
- * Deletes a review and updates product metrics
+ * Deletes a review and updates the product's aggregate metrics atomically
  */
-export async function deleteProductReview(reviewId: string, productId: string): Promise<ReviewResponse> {
+export async function deleteProductReview(
+  reviewId: string,
+  productId: string
+): Promise<ReviewActionResponse> {
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.review.delete({
-        where: { id: reviewId },
+    return await withDbRetry(async () => {
+      const targetProduct = await prisma.$transaction(async (tx) => {
+        // 1. Delete review record
+        await tx.review.delete({
+          where: { id: reviewId },
+        });
+
+        // 2. Aggregate updated stats
+        const aggregateStats = await tx.review.aggregate({
+          where: { productId },
+          _avg: { rating: true },
+          _count: { id: true },
+        });
+
+        const newRating = aggregateStats._avg.rating
+          ? Math.round(aggregateStats._avg.rating * 10) / 10
+          : 0;
+        const newCount = aggregateStats._count.id ?? 0;
+
+        // 3. Update Product model
+        return await tx.product.update({
+          where: { id: productId },
+          data: {
+            rating: newRating,
+            reviewCount: newCount,
+          },
+          select: {
+            id: true,
+            slug: true,
+          },
+        });
       });
 
-      const reviewStats = await tx.review.aggregate({
-        where: { productId },
-        _avg: { rating: true },
-        _count: { id: true },
-      });
+      revalidatePath(`/product/${targetProduct.id}`);
+      revalidatePath(`/product/${targetProduct.slug}`);
+      revalidatePath(`/admin/products/${targetProduct.id}`);
+      revalidatePath('/shop');
+      revalidatePath('/');
 
-      await tx.product.update({
-        where: { id: productId },
-        data: {
-          rating: reviewStats._avg.rating ? Math.round(reviewStats._avg.rating * 10) / 10 : 0,
-          reviewCount: reviewStats._count.id || 0,
-        },
-      });
+      return {
+        success: true,
+        message: 'Review removed successfully.',
+      };
     });
-
-    revalidatePath(`/product/${productId}`);
-    revalidatePath(`/admin/products/${productId}`);
-
-    return {
-      success: true,
-      message: 'Review deleted successfully.',
-    };
   } catch (error) {
-    console.error('[ACTIONS_DELETE_REVIEW_ERROR]:', error);
+    if (isDynamicServerError(error)) throw error;
+    console.error('[ACTIONS_DELETE_PRODUCT_REVIEW_ERROR]:', error);
     return {
       success: false,
-      error: 'Failed to delete review.',
+      error: error instanceof Error ? error.message : 'Failed to delete review.',
     };
   }
 }

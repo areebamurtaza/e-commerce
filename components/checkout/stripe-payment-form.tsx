@@ -33,7 +33,6 @@ export function StripePaymentForm({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    // Prevent default form action and stop event bubbling to any parent containers
     e.preventDefault();
     e.stopPropagation();
 
@@ -74,13 +73,17 @@ export function StripePaymentForm({
           router.replace(`/order-confirmation?orderNumber=${orderNumber}`);
         }
       } else {
-        setErrorMessage('Payment was not completed. Please check your details and try again.');
+        setErrorMessage(
+          'Payment was not completed. Please check your card details and try again.'
+        );
         setIsLoading(false);
       }
     } catch (err) {
       console.error('[STRIPE_PAYMENT_SUBMIT_ERROR]:', err);
       setErrorMessage(
-        err instanceof Error ? err.message : 'An error occurred during payment processing.'
+        err instanceof Error
+          ? err.message
+          : 'An error occurred during payment processing.'
       );
       setIsLoading(false);
     }
