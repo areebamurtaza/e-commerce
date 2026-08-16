@@ -7,6 +7,7 @@ import { prisma, withDbRetry } from '@/lib/prisma';
 import { verifyAdmin } from '@/lib/admin-auth';
 import { OrderStatus, PaymentStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { sendOrderConfirmationEmail, OrderItemEmailPayload } from '@/lib/email';
 
 // ==========================================
 // 1. CANONICAL PRISMA TYPES
@@ -37,6 +38,16 @@ export interface ActionResponse<T = undefined> {
   data?: T;
   error?: string;
   message?: string;
+}
+
+function isDynamicServerError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  return (
+    ('digest' in err && (err as { digest?: string }).digest === 'DYNAMIC_SERVER_USAGE') ||
+    ('message' in err &&
+      typeof (err as { message?: string }).message === 'string' &&
+      (err as { message: string }).message.includes('Dynamic server usage'))
+  );
 }
 
 export interface GetUserOrdersParams {
@@ -226,6 +237,9 @@ export async function confirmStripeOrderPayment(
             paymentStatus: PaymentStatus.SUCCEEDED,
             expiresAt: null,
           },
+          include: {
+            items: true,
+          },
         });
 
         await tx.payment.upsert({
@@ -249,6 +263,35 @@ export async function confirmStripeOrderPayment(
         return updatedOrder;
       });
 
+      // Asynchronous, non-blocking transactional email notification
+      try {
+        const emailItems: OrderItemEmailPayload[] = order.items.map((item) => ({
+          title: item.title,
+          size: item.size,
+          color: item.color,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+        }));
+
+        sendOrderConfirmationEmail({
+          toEmail: order.customerEmail,
+          customerName: order.customerName,
+          orderNumber: order.orderNumber,
+          totalAmount: order.total,
+          shippingAddress: order.shippingAddress,
+          subtotal: order.subtotal,
+          shippingFee: order.shippingFee,
+          discount: order.discount,
+          paymentMethod: 'Credit / Debit Card (Stripe)',
+          items: emailItems,
+        }).catch((err: unknown) => {
+          console.error('[CONFIRM_PAYMENT_EMAIL_BACKGROUND_ERROR]:', err);
+        });
+      } catch (emailErr: unknown) {
+        console.error('[CONFIRM_PAYMENT_EMAIL_DISPATCH_ERROR]:', emailErr);
+      }
+
       revalidatePath('/admin/products');
       revalidatePath('/admin/orders');
       revalidatePath(`/admin/orders/${orderId}`);
@@ -268,6 +311,7 @@ export async function confirmStripeOrderPayment(
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[CONFIRM_STRIPE_PAYMENT_ERROR]:', error);
     return {
       success: false,
@@ -332,15 +376,17 @@ export async function createCashOnDeliveryOrder(
 
         let userConnectInput: Prisma.UserCreateNestedOneWithoutOrdersInput | undefined = undefined;
         if (effectiveUserId) {
-          const userExists = await tx.user.findFirst({
-            where: {
-              OR: [{ id: effectiveUserId }, { email: validated.customerEmail.toLowerCase() }],
+          const user = await tx.user.upsert({
+            where: { id: effectiveUserId },
+            update: { email: validated.customerEmail.toLowerCase() },
+            create: {
+              id: effectiveUserId,
+              email: validated.customerEmail.toLowerCase(),
+              name: validated.customerName,
             },
             select: { id: true },
           });
-          if (userExists) {
-            userConnectInput = { connect: { id: userExists.id } };
-          }
+          userConnectInput = { connect: { id: user.id } };
         }
 
         return await tx.order.create({
@@ -370,8 +416,40 @@ export async function createCashOnDeliveryOrder(
               },
             },
           },
+          include: {
+            items: true,
+          },
         });
       });
+
+      // Asynchronous, non-blocking transactional email notification for Cash on Delivery
+      try {
+        const emailItems: OrderItemEmailPayload[] = order.items.map((item) => ({
+          title: item.title,
+          size: item.size,
+          color: item.color,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+        }));
+
+        sendOrderConfirmationEmail({
+          toEmail: order.customerEmail,
+          customerName: order.customerName,
+          orderNumber: order.orderNumber,
+          totalAmount: order.total,
+          shippingAddress: order.shippingAddress,
+          subtotal: order.subtotal,
+          shippingFee: order.shippingFee,
+          discount: order.discount,
+          paymentMethod: 'Cash on Delivery',
+          items: emailItems,
+        }).catch((err: unknown) => {
+          console.error('[COD_ORDER_EMAIL_BACKGROUND_ERROR]:', err);
+        });
+      } catch (emailErr: unknown) {
+        console.error('[COD_ORDER_EMAIL_DISPATCH_ERROR]:', emailErr);
+      }
 
       revalidatePath('/admin/products');
       revalidatePath('/admin/orders');
@@ -390,6 +468,7 @@ export async function createCashOnDeliveryOrder(
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[CREATE_COD_ORDER_ERROR]:', error);
     return {
       success: false,
@@ -411,6 +490,10 @@ export async function createCheckoutOrder(
     if (!input.items || input.items.length === 0) {
       return { success: false, error: 'Cannot process checkout with an empty cart.' };
     }
+
+    const isPaymentSettled = Boolean(
+      input.stripePaymentIntentId && input.stripePaymentIntentId.startsWith('pi_')
+    );
 
     return await withDbRetry(async () => {
       const createdOrder = await prisma.$transaction(async (tx) => {
@@ -458,9 +541,6 @@ export async function createCheckoutOrder(
         const randomSuffix = Math.floor(1000 + Math.random() * 9000);
         const orderNumber = `ORD-${timestamp}-${randomSuffix}`;
 
-        const isPaymentSettled = Boolean(
-          input.stripePaymentIntentId && input.stripePaymentIntentId.startsWith('pi_')
-        );
         const initialPaymentStatus = isPaymentSettled
           ? PaymentStatus.SUCCEEDED
           : PaymentStatus.PENDING;
@@ -473,15 +553,17 @@ export async function createCheckoutOrder(
 
         let userConnectInput: Prisma.UserCreateNestedOneWithoutOrdersInput | undefined = undefined;
         if (effectiveUserId) {
-          const userExists = await tx.user.findFirst({
-            where: {
-              OR: [{ id: effectiveUserId }, { email: input.customerEmail.toLowerCase() }],
+          const user = await tx.user.upsert({
+            where: { id: effectiveUserId },
+            update: { email: input.customerEmail.toLowerCase() },
+            create: {
+              id: effectiveUserId,
+              email: input.customerEmail.toLowerCase(),
+              name: input.customerName,
             },
             select: { id: true },
           });
-          if (userExists) {
-            userConnectInput = { connect: { id: userExists.id } };
-          }
+          userConnectInput = { connect: { id: user.id } };
         }
 
         return await tx.order.create({
@@ -512,8 +594,41 @@ export async function createCheckoutOrder(
               },
             },
           },
+          include: {
+            items: true,
+          },
         });
       });
+
+      if (isPaymentSettled) {
+        try {
+          const emailItems: OrderItemEmailPayload[] = createdOrder.items.map((item) => ({
+            title: item.title,
+            size: item.size,
+            color: item.color,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            total: item.total,
+          }));
+
+          sendOrderConfirmationEmail({
+            toEmail: createdOrder.customerEmail,
+            customerName: createdOrder.customerName,
+            orderNumber: createdOrder.orderNumber,
+            totalAmount: createdOrder.total,
+            shippingAddress: createdOrder.shippingAddress,
+            subtotal: createdOrder.subtotal,
+            shippingFee: createdOrder.shippingFee,
+            discount: createdOrder.discount,
+            paymentMethod: 'Stripe Gateway',
+            items: emailItems,
+          }).catch((err: unknown) => {
+            console.error('[CHECKOUT_ORDER_EMAIL_BACKGROUND_ERROR]:', err);
+          });
+        } catch (emailErr: unknown) {
+          console.error('[CHECKOUT_ORDER_EMAIL_DISPATCH_ERROR]:', emailErr);
+        }
+      }
 
       revalidatePath('/admin/products');
       revalidatePath('/admin/orders');
@@ -531,6 +646,7 @@ export async function createCheckoutOrder(
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_CREATE_CHECKOUT_ORDER_ERROR]:', error);
     return {
       success: false,
@@ -607,6 +723,7 @@ export async function getUserOrders(
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_USER_ORDERS_ERROR]:', error);
     return {
       success: false,
@@ -662,6 +779,7 @@ export async function getOrderById(
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_ORDER_BY_ID_ERROR]:', error);
     return {
       success: false,
@@ -772,6 +890,7 @@ export async function getAdminOrders(
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_ADMIN_ORDERS_ERROR]:', error);
     return {
       success: false,
@@ -830,6 +949,7 @@ export async function getAdminOrderById(orderIdOrNumber: string) {
       return { success: true, data: order, order };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_GET_ADMIN_ORDER_BY_ID_ERROR]:', error);
     return {
       success: false,
@@ -862,7 +982,9 @@ export async function updateOrderStatus(
         }
 
         const isCOD = order.payment?.paymentMethod === PaymentMethod.COD;
-        const isStripe = order.payment?.paymentMethod === PaymentMethod.STRIPE;
+        const isStripeOrCard =
+          order.payment?.paymentMethod === PaymentMethod.STRIPE ||
+          order.payment?.paymentMethod === PaymentMethod.CARD;
 
         // Inventory Adjustments on Cancellation / Re-opening
         if (newStatus === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
@@ -892,7 +1014,7 @@ export async function updateOrderStatus(
             nextPaymentStatus = PaymentStatus.SUCCEEDED;
           }
         } else if (newStatus === OrderStatus.CANCELLED) {
-          if (isStripe && order.paymentStatus === PaymentStatus.SUCCEEDED) {
+          if (isStripeOrCard && order.paymentStatus === PaymentStatus.SUCCEEDED) {
             nextPaymentStatus = PaymentStatus.REFUNDED;
           } else if (isCOD && order.paymentStatus === PaymentStatus.PENDING) {
             nextPaymentStatus = PaymentStatus.FAILED;
@@ -916,8 +1038,8 @@ export async function updateOrderStatus(
             where: { orderId },
             data: {
               status: PaymentStatus.SUCCEEDED,
-              fee: isStripe ? calculatedFee : 0,
-              netAmount: isStripe ? calculatedNet : order.total,
+              fee: isStripeOrCard ? calculatedFee : 0,
+              netAmount: isStripeOrCard ? calculatedNet : order.total,
             },
           });
         } else if (nextPaymentStatus === PaymentStatus.REFUNDED) {
@@ -954,6 +1076,7 @@ export async function updateOrderStatus(
       return { success: true, data: updatedData };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_UPDATE_ORDER_STATUS_ERROR]:', error);
     return {
       success: false,
@@ -1009,6 +1132,7 @@ export async function updateOrderPaymentStatus(
       return { success: true };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) throw error;
     console.error('[ACTIONS_UPDATE_PAYMENT_STATUS_ERROR]:', error);
     return {
       success: false,

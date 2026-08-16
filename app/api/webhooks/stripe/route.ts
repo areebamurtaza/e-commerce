@@ -6,6 +6,7 @@ import { prisma, withDbRetry } from '@/lib/prisma';
 import { ORDER_CONFIG } from '@/lib/constants';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { sendOrderConfirmationEmail, OrderItemEmailPayload } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,8 +64,8 @@ export async function POST(req: NextRequest) {
       const orderId = paymentIntent.metadata?.orderId;
 
       if (orderId) {
-        await withDbRetry(async () => {
-          await prisma.$transaction(
+        const settledOrder = await withDbRetry(async () => {
+          return await prisma.$transaction(
             async (tx) => {
               const order = await tx.order.findUnique({
                 where: { id: orderId },
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
 
               // Idempotency check: Exit if already processed
               if (!order || order.paymentStatus === PaymentStatus.SUCCEEDED) {
-                return;
+                return null;
               }
 
               // Deduct stock
@@ -103,13 +104,14 @@ export async function POST(req: NextRequest) {
               const netAmount = Number((order.total - fee).toFixed(2));
 
               // Settle Order Status and release reservation lock
-              await tx.order.update({
+              const updated = await tx.order.update({
                 where: { id: orderId },
                 data: {
                   status: OrderStatus.PROCESSING,
                   paymentStatus: PaymentStatus.SUCCEEDED,
                   expiresAt: null,
                 },
+                include: { items: true },
               });
 
               // Settle Payment Record
@@ -130,10 +132,43 @@ export async function POST(req: NextRequest) {
                   netAmount,
                 },
               });
+
+              return updated;
             },
             { timeout: 15000 }
           );
         });
+
+        // Asynchronously dispatch order confirmation email (non-blocking)
+        if (settledOrder) {
+          try {
+            const emailItems: OrderItemEmailPayload[] = settledOrder.items.map((item) => ({
+              title: item.title,
+              size: item.size,
+              color: item.color,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total,
+            }));
+
+            sendOrderConfirmationEmail({
+              toEmail: settledOrder.customerEmail,
+              customerName: settledOrder.customerName,
+              orderNumber: settledOrder.orderNumber,
+              totalAmount: settledOrder.total,
+              shippingAddress: settledOrder.shippingAddress,
+              subtotal: settledOrder.subtotal,
+              shippingFee: settledOrder.shippingFee,
+              discount: settledOrder.discount,
+              paymentMethod: 'Credit / Debit Card (Stripe Webhook)',
+              items: emailItems,
+            }).catch((err: unknown) => {
+              console.error('[STRIPE_WEBHOOK_EMAIL_BACKGROUND_ERROR]:', err);
+            });
+          } catch (emailErr: unknown) {
+            console.error('[STRIPE_WEBHOOK_EMAIL_DISPATCH_ERROR]:', emailErr);
+          }
+        }
 
         revalidatePath('/admin/orders');
         revalidatePath('/admin/payments');
