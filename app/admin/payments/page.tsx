@@ -3,6 +3,8 @@ import { Suspense } from 'react';
 import { getPaymentAnalytics, getPaymentTransactions } from '@/actions/payment';
 import { PaymentsOverviewClient } from '@/components/admin/payments-overview-client';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Payments & Balances | Admin Dashboard',
   description: 'Manage treasury balances, transaction cash flows, and exchange rates.',
@@ -14,18 +16,19 @@ export default async function PaymentsOverviewPage() {
     getPaymentTransactions({ limit: 10, page: 1 }),
   ]);
 
-  const summary = analyticsRes.success && analyticsRes.summary
-    ? analyticsRes.summary
-    : {
-        grossVolume: 0,
-        netRevenue: 0,
-        totalFees: 0,
-        refundedAmount: 0,
-        successfulTransactionsCount: 0,
-        failedTransactionsCount: 0,
-        refundRatePercentage: 0,
-        averageOrderValue: 0,
-      };
+  const summary =
+    analyticsRes.success && analyticsRes.summary
+      ? analyticsRes.summary
+      : {
+          grossVolume: 0,
+          netRevenue: 0,
+          totalFees: 0,
+          refundedAmount: 0,
+          successfulTransactionsCount: 0,
+          failedTransactionsCount: 0,
+          refundRatePercentage: 0,
+          averageOrderValue: 0,
+        };
 
   const initialTransactions = transactionsRes.success ? transactionsRes.transactions : [];
 

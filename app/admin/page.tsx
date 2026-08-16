@@ -5,7 +5,17 @@ import { AnalyticsCharts } from '@/components/admin/analytics-charts';
 import { RecentOrdersTable } from '@/components/admin/recent-orders-table';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Calendar, Download, DollarSign, Users, ShoppingBag, TrendingUp, AlertTriangle } from 'lucide-react';
+import {
+  Calendar,
+  Download,
+  DollarSign,
+  Users,
+  ShoppingBag,
+  TrendingUp,
+  AlertTriangle,
+} from 'lucide-react';
+
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Dashboard Overview | SHOP.CO Admin',
@@ -150,7 +160,7 @@ export default async function AdminDashboardPage() {
         })}
       </div>
 
-      {/* Row 2: Analytics Charts (Revenue Area & Category Sales Bar) */}
+      {/* Row 2: Analytics Charts */}
       <AnalyticsCharts revenueData={revenueChart} categoryData={categoryChart} />
 
       {/* Row 3: Live Customer Orders Table */}

@@ -30,6 +30,16 @@ export interface AdminAnalyticsResponse {
   error?: string;
 }
 
+function isDynamicServerError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  return (
+    ('digest' in err && (err as { digest?: string }).digest === 'DYNAMIC_SERVER_USAGE') ||
+    ('message' in err &&
+      typeof (err as { message?: string }).message === 'string' &&
+      (err as { message: string }).message.includes('Dynamic server usage'))
+  );
+}
+
 export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
   try {
     await verifyAdmin();
@@ -39,7 +49,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-      // 1. Parallel Database Queries with cold-start resilience
       const [
         currentMonthCompletedOrders,
         prevMonthCompletedOrders,
@@ -49,7 +58,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
         recentOrdersRaw,
         categories,
       ] = await Promise.all([
-        // Current 30-day gross
         prisma.order.aggregate({
           where: {
             createdAt: { gte: thirtyDaysAgo },
@@ -58,7 +66,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
           _sum: { total: true },
           _count: { id: true },
         }),
-        // Previous 30-day gross for percentage delta
         prisma.order.aggregate({
           where: {
             createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo },
@@ -67,19 +74,15 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
           _sum: { total: true },
           _count: { id: true },
         }),
-        // Total verified customer accounts
         prisma.user.count(),
-        // Prior customer count
         prisma.user.count({
           where: { createdAt: { lt: thirtyDaysAgo } },
         }),
-        // Successful orders for time-series chart plotting
         prisma.order.findMany({
           where: { paymentStatus: PaymentStatus.SUCCEEDED },
           select: { total: true, createdAt: true },
           orderBy: { createdAt: 'asc' },
         }),
-        // Top 5 recent orders for dashboard table
         prisma.order.findMany({
           take: 5,
           orderBy: { createdAt: 'desc' },
@@ -89,7 +92,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
             items: { select: { quantity: true } },
           },
         }),
-        // Category / Style revenue distribution
         prisma.category.findMany({
           include: {
             products: {
@@ -108,27 +110,43 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
         }),
       ]);
 
-      // 2. Metric Calculations
       const currentRev = currentMonthCompletedOrders._sum.total || 0;
       const prevRev = prevMonthCompletedOrders._sum.total || 0;
-      const revDelta = prevRev > 0 ? ((currentRev - prevRev) / prevRev) * 100 : currentRev > 0 ? 100 : 0;
-      const userDelta = prevUsersCount > 0 ? ((totalUsersCount - prevUsersCount) / prevUsersCount) * 100 : totalUsersCount > 0 ? 100 : 0;
+      const revDelta =
+        prevRev > 0 ? ((currentRev - prevRev) / prevRev) * 100 : currentRev > 0 ? 100 : 0;
+      const userDelta =
+        prevUsersCount > 0
+          ? ((totalUsersCount - prevUsersCount) / prevUsersCount) * 100
+          : totalUsersCount > 0
+            ? 100
+            : 0;
 
       const completedOrdersCount = currentMonthCompletedOrders._count.id || 0;
       const prevOrdersCount = prevMonthCompletedOrders._count.id || 0;
-      const ordersDelta = prevOrdersCount > 0 ? ((completedOrdersCount - prevOrdersCount) / prevOrdersCount) * 100 : completedOrdersCount > 0 ? 100 : 0;
+      const ordersDelta =
+        prevOrdersCount > 0
+          ? ((completedOrdersCount - prevOrdersCount) / prevOrdersCount) * 100
+          : completedOrdersCount > 0
+            ? 100
+            : 0;
 
       const metrics = {
         totalRevenue: {
           title: 'Total Gross Revenue',
-          value: `$${currentRev.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          value: `$${currentRev.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
           change: Number(revDelta.toFixed(1)),
           trend: (revDelta >= 0 ? 'up' : 'down') as 'up' | 'down',
           description: 'Compared to previous 30 days',
         },
         monthlyRecurring: {
           title: 'Monthly Volume',
-          value: `$${currentRev.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          value: `$${currentRev.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
           change: Number(revDelta.toFixed(1)),
           trend: (revDelta >= 0 ? 'up' : 'down') as 'up' | 'down',
           description: 'Current 30d gross sales',
@@ -149,7 +167,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
         },
       };
 
-      // 3. Generate Continuous 30-Day Revenue Trend Map
       const revenueMap = new Map<string, { revenue: number; orders: number }>();
       for (let i = 29; i >= 0; i--) {
         const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
@@ -158,7 +175,10 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
       }
 
       allCompletedOrders.forEach((o) => {
-        const key = new Date(o.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const key = new Date(o.createdAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        });
         if (revenueMap.has(key)) {
           const entry = revenueMap.get(key)!;
           entry.revenue += o.total;
@@ -166,14 +186,15 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
         }
       });
 
-      const revenueChart: RevenueChartData[] = Array.from(revenueMap.entries()).map(([date, data]) => ({
-        date,
-        revenue: Math.round(data.revenue * 100) / 100,
-        orders: data.orders,
-        refunds: 0,
-      }));
+      const revenueChart: RevenueChartData[] = Array.from(revenueMap.entries()).map(
+        ([date, data]) => ({
+          date,
+          revenue: Math.round(data.revenue * 100) / 100,
+          orders: data.orders,
+          refunds: 0,
+        })
+      );
 
-      // 4. Sales Distribution by Category
       let grossCategorySales = 0;
       const rawCategories = categories.map((cat) => {
         let sales = 0;
@@ -194,7 +215,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
         percentage: grossCategorySales > 0 ? Math.round((c.sales / grossCategorySales) * 100) : 0,
       }));
 
-      // Fallback distribution if no category items purchased yet
       const finalCategoryChart =
         categoryChart.length > 0
           ? categoryChart
@@ -205,7 +225,6 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
               { category: 'Gym', sales: 0, percentage: 25 },
             ];
 
-      // 5. Format Recent Orders
       const recentOrders: RecentOrder[] = recentOrdersRaw.map((o) => ({
         id: o.id,
         orderNumber: o.orderNumber,
@@ -237,6 +256,10 @@ export async function getAdminDashboardData(): Promise<AdminAnalyticsResponse> {
       };
     });
   } catch (error) {
+    if (isDynamicServerError(error)) {
+      throw error;
+    }
+
     console.error('[GET_ADMIN_DASHBOARD_DATA_ERROR]:', error);
     return {
       success: false,
