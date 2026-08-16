@@ -1,170 +1,235 @@
 // app/admin/page.tsx
+import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getAdminDashboardData } from '@/actions/analytics';
-import { AnalyticsCharts } from '@/components/admin/analytics-charts';
-import { RecentOrdersTable } from '@/components/admin/recent-orders-table';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import {
-  Calendar,
-  Download,
   DollarSign,
-  Users,
   ShoppingBag,
-  TrendingUp,
+  Users,
   AlertTriangle,
+  ArrowUpRight,
+  TrendingUp,
+  Package,
+  Clock,
+  ArrowRight,
+  CreditCard,
 } from 'lucide-react';
+import { getAdminDashboardAnalytics } from '@/actions/analytics';
+import { verifyAdmin } from '@/lib/admin-auth';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = {
-  title: 'Dashboard Overview | SHOP.CO Admin',
-  description: 'Real-time storefront performance, revenue metrics, and customer analytics.',
+export const metadata: Metadata = {
+  title: 'Admin Operations Control | SHOP.CO',
+  description: 'Live performance metrics, fulfillment queues, and financial analytics.',
 };
 
-export default async function AdminDashboardPage() {
-  const response = await getAdminDashboardData();
+export default async function AdminDashboardOverviewPage() {
+  await verifyAdmin();
+  const analyticsRes = await getAdminDashboardAnalytics();
 
-  if (!response.success || !response.data) {
-    return (
-      <div className="p-6 font-satoshi">
-        <div className="rounded-[20px] border border-rose-200 bg-rose-50 p-6 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5" />
-            <h2 className="text-base font-bold">Dashboard Synchronization Error</h2>
-          </div>
-          <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-            {response.error || 'Failed to establish database connection with analytics engine.'}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const data = analyticsRes.data || {
+    kpi: {
+      totalRevenue: 0,
+      netRevenue: 0,
+      totalOrders: 0,
+      averageOrderValue: 0,
+      totalCustomers: 0,
+      lowStockItemsCount: 0,
+      pendingFulfillmentCount: 0,
+    },
+    monthlyRevenue: [],
+    categoryDistribution: [],
+    recentOrders: [],
+  };
 
-  const { metrics, revenueChart, categoryChart, recentOrders } = response.data;
-
-  const metricCards = [
-    {
-      title: metrics.totalRevenue.title,
-      value: metrics.totalRevenue.value,
-      change: `${metrics.totalRevenue.change >= 0 ? '+' : ''}${metrics.totalRevenue.change}%`,
-      trend: metrics.totalRevenue.trend,
-      description: metrics.totalRevenue.description,
-      icon: DollarSign,
-      color: 'text-emerald-600 dark:text-emerald-400',
-    },
-    {
-      title: metrics.monthlyRecurring.title,
-      value: metrics.monthlyRecurring.value,
-      change: `${metrics.monthlyRecurring.change >= 0 ? '+' : ''}${metrics.monthlyRecurring.change}%`,
-      trend: metrics.monthlyRecurring.trend,
-      description: metrics.monthlyRecurring.description,
-      icon: TrendingUp,
-      color: 'text-blue-600 dark:text-blue-400',
-    },
-    {
-      title: metrics.activeUsers.title,
-      value: metrics.activeUsers.value,
-      change: `${metrics.activeUsers.change >= 0 ? '+' : ''}${metrics.activeUsers.change}%`,
-      trend: metrics.activeUsers.trend,
-      description: metrics.activeUsers.description,
-      icon: Users,
-      color: 'text-purple-600 dark:text-purple-400',
-    },
-    {
-      title: metrics.customerGrowth.title,
-      value: metrics.customerGrowth.value,
-      change: `${metrics.customerGrowth.change >= 0 ? '+' : ''}${metrics.customerGrowth.change}%`,
-      trend: metrics.customerGrowth.trend,
-      description: metrics.customerGrowth.description,
-      icon: ShoppingBag,
-      color: 'text-amber-600 dark:text-amber-400',
-    },
-  ];
+  const { kpi, recentOrders, monthlyRevenue, categoryDistribution } = data;
 
   return (
-    <div className="space-y-6 font-satoshi text-black dark:text-white pb-10">
-      {/* Top Header Controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8 font-satoshi text-black dark:text-white pb-16">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-black px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-white dark:bg-white dark:text-black">
-              LIVE
-            </span>
-            <h1 className="font-integral text-2xl font-bold uppercase tracking-tight text-black dark:text-white">
-              E-COMMERCE DASHBOARD
-            </h1>
-          </div>
-          <p className="mt-1 text-xs text-black/60 dark:text-zinc-400">
-            Real-time storefront performance, revenue metrics, and customer analytics.
+          <h1 className="font-integral font-bold text-2xl sm:text-3xl uppercase tracking-tight">
+            Dashboard Overview
+          </h1>
+          <p className="text-xs sm:text-sm text-black/60 dark:text-zinc-400 mt-1">
+            Real-time financial performance, stock alerts, and fulfillment tracking.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-[62px] border border-black/10 bg-white px-4 py-1.5 text-xs font-medium text-black/70 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-            <Calendar className="h-3.5 w-3.5 text-black/40 dark:text-zinc-500" />
-            <span>Audit Cycle 2026</span>
-          </div>
-          <Button
-            asChild
-            size="sm"
-            className="h-8.5 gap-1.5 rounded-[62px] bg-black px-5 text-xs font-semibold text-white shadow-xs hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
-          >
-            <Link href="/admin/payments/transactions">
-              <Download className="h-3.5 w-3.5" /> Export Ledger
-            </Link>
+        <div className="flex items-center gap-2.5">
+          <Button asChild variant="outline" size="sm" className="rounded-[62px] text-xs h-9">
+            <Link href="/admin/orders">Manage Orders</Link>
+          </Button>
+          <Button asChild size="sm" className="rounded-[62px] text-xs h-9 bg-black text-white dark:bg-white dark:text-black">
+            <Link href="/admin/products/new">Add Product</Link>
           </Button>
         </div>
       </div>
 
-      {/* Row 1: Top 4 Metric Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metricCards.map((card) => {
-          const Icon = card.icon;
-          const isPositive = card.trend === 'up';
+      {/* Primary KPI Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <Card className="rounded-[20px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-black/60 dark:text-zinc-400 uppercase tracking-wider">
+              Gross Revenue
+            </CardTitle>
+            <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <DollarSign size={16} />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="text-2xl font-bold font-mono">
+              ${kpi.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-[11px] text-black/50 dark:text-zinc-400 flex items-center gap-1">
+              <TrendingUp size={12} className="text-emerald-600" />
+              <span>Net profit: ${kpi.netRevenue.toFixed(2)}</span>
+            </p>
+          </CardContent>
+        </Card>
 
-          return (
-            <Card
-              key={card.title}
-              className="space-y-2 rounded-[20px] border-black/10 bg-white p-5 shadow-xs transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-black/60 dark:text-zinc-400">
-                  {card.title}
-                </span>
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-black/5 dark:bg-zinc-800">
-                  <Icon className={`h-3.5 w-3.5 ${card.color}`} />
-                </div>
-              </div>
+        <Card className="rounded-[20px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-black/60 dark:text-zinc-400 uppercase tracking-wider">
+              Total Orders
+            </CardTitle>
+            <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 dark:text-blue-400">
+              <ShoppingBag size={16} />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="text-2xl font-bold font-mono">{kpi.totalOrders}</div>
+            <p className="text-[11px] text-black/50 dark:text-zinc-400">
+              Avg. Order: ${kpi.averageOrderValue.toFixed(2)}
+            </p>
+          </CardContent>
+        </Card>
 
-              <p className="font-integral text-2xl font-extrabold text-black dark:text-white">
-                {card.value}
-              </p>
+        <Card className="rounded-[20px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-black/60 dark:text-zinc-400 uppercase tracking-wider">
+              Pending Fulfillment
+            </CardTitle>
+            <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 dark:text-amber-400">
+              <Clock size={16} />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400">
+              {kpi.pendingFulfillmentCount}
+            </div>
+            <p className="text-[11px] text-black/50 dark:text-zinc-400">
+              Awaiting dispatch/collection
+            </p>
+          </CardContent>
+        </Card>
 
-              <div className="flex items-center justify-between pt-1 text-[11px]">
-                <span
-                  className={`font-semibold ${
-                    isPositive
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-600 dark:text-rose-400'
-                  }`}
-                >
-                  {card.change}
-                </span>
-                <span className="font-medium text-black/40 dark:text-zinc-500">
-                  {card.description}
-                </span>
-              </div>
-            </Card>
-          );
-        })}
+        <Card className="rounded-[20px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-black/60 dark:text-zinc-400 uppercase tracking-wider">
+              Low Stock Variants
+            </CardTitle>
+            <div className="h-8 w-8 rounded-full bg-rose-100 dark:bg-rose-950 flex items-center justify-center text-rose-600 dark:text-rose-400">
+              <AlertTriangle size={16} />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <div className="text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
+              {kpi.lowStockItemsCount}
+            </div>
+            <p className="text-[11px] text-black/50 dark:text-zinc-400">
+              Items with $\le 5$ units remaining
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Row 2: Analytics Charts */}
-      <AnalyticsCharts revenueData={revenueChart} categoryData={categoryChart} />
+      {/* Category Performance & Recent Orders Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Recent Orders List */}
+        <div className="lg:col-span-8 bg-white dark:bg-zinc-900 rounded-[24px] border border-black/10 dark:border-zinc-800 p-6 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between pb-3 border-b border-black/10 dark:border-zinc-800">
+            <h2 className="font-bold text-lg text-black dark:text-white">
+              Recent Transactions
+            </h2>
+            <Button asChild variant="ghost" size="sm" className="text-xs text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <Link href="/admin/orders" className="flex items-center gap-1">
+                <span>View All</span>
+                <ArrowRight size={13} />
+              </Link>
+            </Button>
+          </div>
 
-      {/* Row 3: Live Customer Orders Table */}
-      <RecentOrdersTable orders={recentOrders} />
+          {recentOrders.length > 0 ? (
+            <div className="divide-y divide-black/5 dark:divide-zinc-800">
+              {recentOrders.map((order) => (
+                <div key={order.id} className="py-3.5 flex items-center justify-between gap-4">
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-sm">{order.orderNumber}</span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          order.status === 'DELIVERED'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : order.status === 'PROCESSING'
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            : 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300'
+                        }`}
+                      >
+                        {order.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-black/60 dark:text-zinc-400 truncate">
+                      {order.customerName} ({order.customerEmail}) • {order.itemsCount} items
+                    </p>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="font-mono font-bold text-sm">${order.total.toFixed(2)}</div>
+                    <span className="text-[10px] text-black/40 dark:text-zinc-500 uppercase">
+                      {order.paymentMethod}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-black/50 dark:text-zinc-500 text-center py-8">
+              No orders recorded yet.
+            </p>
+          )}
+        </div>
+
+        {/* Category Sales Distribution Breakdown */}
+        <div className="lg:col-span-4 bg-white dark:bg-zinc-900 rounded-[24px] border border-black/10 dark:border-zinc-800 p-6 space-y-4 shadow-xs">
+          <h2 className="font-bold text-lg text-black dark:text-white pb-3 border-b border-black/10 dark:border-zinc-800">
+            Top Categories
+          </h2>
+
+          {categoryDistribution.length > 0 ? (
+            <div className="space-y-3.5">
+              {categoryDistribution.map((cat) => (
+                <div key={cat.categoryName} className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span>{cat.categoryName}</span>
+                    <span className="font-mono">${cat.revenue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-black/50 dark:text-zinc-400">
+                    <span>{cat.totalUnitsSold} units sold</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-black/50 dark:text-zinc-500 text-center py-8">
+              No category sales data yet.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
