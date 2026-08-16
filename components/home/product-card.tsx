@@ -36,11 +36,9 @@ export function ProductCard({ product }: ProductCardProps) {
           {product.title}
         </h3>
 
+        {/* Fixed: Render RatingStars only once (it already outputs the numeric score internally) */}
         <div className="flex items-center gap-2">
           <RatingStars rating={product.rating} />
-          <span className="text-[12px] sm:text-[14px] text-black/60 dark:text-zinc-400">
-            {product.rating.toFixed(1)}/5
-          </span>
         </div>
 
         <PriceTag price={displayPrice} discount={discount} />
