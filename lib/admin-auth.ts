@@ -1,65 +1,58 @@
 // lib/admin-auth.ts
 import { auth, currentUser } from '@clerk/nextjs/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, withDbRetry } from '@/lib/prisma';
 import { Role } from '@prisma/client';
 
-export interface AdminAuthSession {
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+export function isWhitelistedAdminEmail(email: string): boolean {
+  if (!email) return false;
+  if (ADMIN_EMAILS.length === 0) return true; // Fallback if no whitelist is configured
+  return ADMIN_EMAILS.includes(email.toLowerCase());
+}
+
+export interface AuthenticatedAdmin {
   id: string;
-  userId: string;
+  clerkId: string;
   email: string;
-  name: string | null;
+  name: string;
   role: Role;
 }
 
-/**
- * Checks if an email is in the admin whitelist environment variable
- */
-function isWhitelistedAdminEmail(email: string): boolean {
-  const adminEmails = (process.env.ADMIN_EMAILS || '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
-  return adminEmails.includes(email.toLowerCase());
-}
-
-/**
- * Validates the current Clerk session against the PostgreSQL database.
- * Auto-promotes whitelisted admin emails.
- * Throws an error if unauthenticated or not an ADMIN.
- */
-export async function verifyAdmin(): Promise<AdminAuthSession> {
+export async function verifyAdmin(): Promise<AuthenticatedAdmin> {
   const { userId } = await auth();
 
   if (!userId) {
-    throw new Error('UNAUTHORIZED: Authentication required.');
+    throw new Error('Unauthorized: Authentication required.');
   }
 
   const clerkUser = await currentUser();
+
   if (!clerkUser) {
-    throw new Error('UNAUTHORIZED: User session not found.');
+    throw new Error('Unauthorized: Unable to verify session identity.');
   }
 
-  const primaryEmail = clerkUser.emailAddresses[0]?.emailAddress ?? '';
+  const primaryEmail = clerkUser.emailAddresses[0]?.emailAddress?.toLowerCase() ?? '';
+  const fullName = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Admin User';
   const isWhitelisted = isWhitelistedAdminEmail(primaryEmail);
 
-  let dbUser = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-    },
-  });
-
-  if (!dbUser) {
-    dbUser = await prisma.user.create({
-      data: {
+  const dbUser = await withDbRetry(async () => {
+    return await prisma.user.upsert({
+      where: { email: primaryEmail },
+      update: {
+        id: userId,
+        name: fullName,
+        imageUrl: clerkUser.imageUrl || null,
+        ...(isWhitelisted ? { role: Role.ADMIN } : {}),
+      },
+      create: {
         id: userId,
         email: primaryEmail,
-        name: `${clerkUser.firstName ?? ''} ${clerkUser.lastName ?? ''}`.trim() || null,
-        imageUrl: clerkUser.imageUrl,
+        name: fullName,
+        imageUrl: clerkUser.imageUrl || null,
         role: isWhitelisted ? Role.ADMIN : Role.CUSTOMER,
       },
       select: {
@@ -69,41 +62,17 @@ export async function verifyAdmin(): Promise<AdminAuthSession> {
         role: true,
       },
     });
-  } else if (isWhitelisted && dbUser.role !== Role.ADMIN) {
-    // Automatically elevate if email is added to whitelist
-    dbUser = await prisma.user.update({
-      where: { id: userId },
-      data: { role: Role.ADMIN },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-      },
-    });
-  }
+  });
 
-  if (dbUser.role !== Role.ADMIN) {
-    throw new Error('FORBIDDEN: Admin privileges required.');
+  if (dbUser.role !== Role.ADMIN && !isWhitelisted) {
+    throw new Error('Forbidden: Administrative privileges required.');
   }
 
   return {
     id: dbUser.id,
-    userId: dbUser.id,
+    clerkId: userId,
     email: dbUser.email,
-    name: dbUser.name,
+    name: dbUser.name ?? fullName,
     role: dbUser.role,
   };
-}
-
-/**
- * Non-throwing boolean check for conditional UI rendering
- */
-export async function checkIsAdmin(): Promise<boolean> {
-  try {
-    await verifyAdmin();
-    return true;
-  } catch {
-    return false;
-  }
 }

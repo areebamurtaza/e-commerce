@@ -2,15 +2,17 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { prisma } from '@/lib/prisma';
+import { prisma, withDbRetry } from '@/lib/prisma';
 import { verifyAdmin } from '@/lib/admin-auth';
 import { productFormSchema, ProductFormValues } from '@/schemas/product';
-import { DressStyle, Prisma } from '@prisma/client';
+import { DressStyle, Gender, Prisma } from '@prisma/client';
+import { ALL_TAXONOMY_CATEGORIES } from '@/constants/shop';
 
 export interface GetProductsParams {
   query?: string;
   category?: string;
-  gender?: string;
+  type?: string;
+  gender?: string | Gender;
   dressStyle?: DressStyle;
   minPrice?: number;
   maxPrice?: number;
@@ -58,6 +60,7 @@ export interface AdminProductItem {
   price: number;
   category: string;
   categoryId: string;
+  gender: Gender;
   dressStyle: DressStyle;
   stock: number;
   sku: string;
@@ -88,24 +91,6 @@ export interface AdminProductsResult {
   error?: string;
 }
 
-/**
- * Resilient Database retry wrapper for serverless cold starts
- */
-async function withDbRetry<T>(operation: () => Promise<T>, maxRetries = 2): Promise<T> {
-  let attempts = 0;
-  while (attempts < maxRetries) {
-    try {
-      return await operation();
-    } catch (error) {
-      attempts++;
-      if (attempts >= maxRetries) throw error;
-      console.warn(`[DB_RETRY]: Connection attempt ${attempts} failed. Retrying in 1.5s...`);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-  }
-  throw new Error('Database operation exceeded maximum retry attempts.');
-}
-
 /* ==========================================================================
    STOREFRONT READ QUERIES
    ========================================================================== */
@@ -115,6 +100,7 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
     const {
       query,
       category,
+      type,
       gender,
       dressStyle,
       minPrice,
@@ -130,40 +116,75 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
     const safeLimit = Math.max(1, Math.min(100, limit));
     const skip = (safePage - 1) * safeLimit;
 
-    const where: Prisma.ProductWhereInput = {};
+    const andConditions: Prisma.ProductWhereInput[] = [];
 
+    // Price Filtering
     if (minPrice !== undefined || maxPrice !== undefined) {
-      where.basePrice = {
-        ...(minPrice !== undefined ? { gte: minPrice } : {}),
-        ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
-      };
+      andConditions.push({
+        basePrice: {
+          ...(minPrice !== undefined ? { gte: minPrice } : {}),
+          ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+        },
+      });
     }
 
+    // Keyword Search
     if (query && query.trim() !== '') {
       const cleanQuery = query.trim();
-      where.OR = [
-        { title: { contains: cleanQuery, mode: 'insensitive' } },
-        { description: { contains: cleanQuery, mode: 'insensitive' } },
-      ];
+      andConditions.push({
+        OR: [
+          { title: { contains: cleanQuery, mode: 'insensitive' } },
+          { description: { contains: cleanQuery, mode: 'insensitive' } },
+        ],
+      });
     }
 
-    const targetCategory = category || gender;
+    // Gender / Department Filtering
+    if (gender && String(gender).trim() !== '') {
+      const rawGender = String(gender).trim().toUpperCase();
+      if (['MEN', 'WOMEN', 'KIDS', 'UNISEX'].includes(rawGender)) {
+        andConditions.push({
+          OR: [
+            { gender: rawGender as Gender },
+            { gender: Gender.UNISEX },
+          ],
+        });
+      }
+    }
+
+    // Subcategory / Apparel Type Filtering
+    const targetCategory = category || type;
     if (targetCategory && targetCategory.trim() !== '') {
       const cleanCategory = targetCategory.trim().toLowerCase();
-      where.category = {
-        OR: [
-          { slug: { equals: cleanCategory, mode: 'insensitive' } },
-          { name: { equals: cleanCategory, mode: 'insensitive' } },
-        ],
-      };
+      if (['men', 'women', 'kids'].includes(cleanCategory) && !gender) {
+        const gEnum = cleanCategory.toUpperCase() as Gender;
+        andConditions.push({
+          OR: [{ gender: gEnum }, { gender: Gender.UNISEX }],
+        });
+      } else {
+        andConditions.push({
+          category: {
+            OR: [
+              { slug: { equals: cleanCategory, mode: 'insensitive' } },
+              { name: { equals: cleanCategory, mode: 'insensitive' } },
+              { slug: { contains: cleanCategory, mode: 'insensitive' } },
+              { name: { contains: cleanCategory, mode: 'insensitive' } },
+            ],
+          },
+        });
+      }
     }
 
+    // Dress Style Filter
     if (dressStyle) {
-      where.dressStyle = dressStyle;
+      andConditions.push({ dressStyle });
     }
 
-    if (isFeatured !== undefined) where.isFeatured = isFeatured;
-    if (isNewArrival !== undefined) where.isNewArrival = isNewArrival;
+    if (isFeatured !== undefined) andConditions.push({ isFeatured });
+    if (isNewArrival !== undefined) andConditions.push({ isNewArrival });
+
+    const where: Prisma.ProductWhereInput =
+      andConditions.length > 0 ? { AND: andConditions } : {};
 
     let orderBy: Prisma.ProductOrderByWithRelationInput = { createdAt: 'desc' };
     if (sort === 'price-asc') orderBy = { basePrice: 'asc' };
@@ -242,24 +263,35 @@ export async function getProductBySlugOrId(identifier: string) {
    ========================================================================== */
 
 /**
- * Fetches all categories for admin forms and filter controls
+ * Fetches and ensures all standard taxonomy categories exist in the database
  */
 export async function getAdminCategories() {
   try {
-    const categories = await prisma.category.findMany({
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, slug: true },
+    return await withDbRetry(async () => {
+      // Ensure all standard categories exist in database
+      await Promise.all(
+        ALL_TAXONOMY_CATEGORIES.map(async (cat) => {
+          return prisma.category.upsert({
+            where: { slug: cat.slug },
+            update: { name: cat.name },
+            create: { name: cat.name, slug: cat.slug },
+          });
+        })
+      );
+
+      const categories = await prisma.category.findMany({
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, slug: true },
+      });
+
+      return { success: true, categories };
     });
-    return { success: true, categories };
   } catch (error) {
     console.error('[ACTIONS_GET_CATEGORIES_ERROR]:', error);
     return { success: false, categories: [] };
   }
 }
 
-/**
- * Retrieves paginated products with variant inventory aggregations and KPIs
- */
 export async function getAdminProducts(
   params: AdminProductsFilterParams = {}
 ): Promise<AdminProductsResult> {
@@ -318,7 +350,6 @@ export async function getAdminProducts(
       prisma.category.count(),
     ]);
 
-    // Map and calculate aggregated stock quantities
     let totalStockUnits = 0;
     let outOfStockCount = 0;
 
@@ -338,6 +369,7 @@ export async function getAdminProducts(
         price: p.basePrice,
         category: p.category.name,
         categoryId: p.category.id,
+        gender: p.gender,
         dressStyle: p.dressStyle,
         stock: stockSum,
         sku: defaultSku,
@@ -351,7 +383,6 @@ export async function getAdminProducts(
       };
     });
 
-    // Apply client status filter on computed variant stock sums
     const filteredProducts =
       status === 'All'
         ? mappedProducts
@@ -388,61 +419,60 @@ export async function getAdminProducts(
   }
 }
 
-/**
- * Creates a new product with full variant matrix & image associations
- */
 export async function createProduct(rawData: ProductFormValues) {
   try {
     await verifyAdmin();
 
     const validated = productFormSchema.parse(rawData);
 
-    // Verify slug uniqueness
-    const existing = await prisma.product.findUnique({
-      where: { slug: validated.slug },
-    });
-
-    if (existing) {
-      return { success: false, error: 'A product with this URL slug already exists.' };
-    }
-
-    const newProduct = await prisma.$transaction(async (tx) => {
-      return await tx.product.create({
-        data: {
-          title: validated.title,
-          slug: validated.slug,
-          description: validated.description,
-          basePrice: validated.basePrice,
-          discountPercentage: validated.discountPercentage,
-          dressStyle: validated.dressStyle,
-          isFeatured: validated.isFeatured,
-          isNewArrival: validated.isNewArrival,
-          categoryId: validated.categoryId,
-          images: {
-            create: validated.images.map((img) => ({
-              url: img.url,
-              isPrimary: img.isPrimary,
-            })),
-          },
-          variants: {
-            create: validated.variants.map((v) => ({
-              sku: v.sku,
-              size: v.size,
-              colorName: v.colorName,
-              colorHex: v.colorHex,
-              priceOffset: v.priceOffset,
-              stockQuantity: v.stockQuantity,
-            })),
-          },
-        },
+    return await withDbRetry(async () => {
+      const existing = await prisma.product.findUnique({
+        where: { slug: validated.slug },
       });
+
+      if (existing) {
+        return { success: false, error: 'A product with this URL slug already exists.' };
+      }
+
+      const newProduct = await prisma.$transaction(async (tx) => {
+        return await tx.product.create({
+          data: {
+            title: validated.title,
+            slug: validated.slug,
+            description: validated.description,
+            basePrice: validated.basePrice,
+            discountPercentage: validated.discountPercentage,
+            gender: validated.gender as Gender,
+            dressStyle: validated.dressStyle,
+            isFeatured: validated.isFeatured,
+            isNewArrival: validated.isNewArrival,
+            categoryId: validated.categoryId,
+            images: {
+              create: validated.images.map((img) => ({
+                url: img.url,
+                isPrimary: img.isPrimary,
+              })),
+            },
+            variants: {
+              create: validated.variants.map((v) => ({
+                sku: v.sku,
+                size: v.size,
+                colorName: v.colorName,
+                colorHex: v.colorHex,
+                priceOffset: v.priceOffset,
+                stockQuantity: v.stockQuantity,
+              })),
+            },
+          },
+        });
+      });
+
+      revalidatePath('/admin/products');
+      revalidatePath('/shop');
+      revalidatePath('/');
+
+      return { success: true, data: newProduct };
     });
-
-    revalidatePath('/admin/products');
-    revalidatePath('/shop');
-    revalidatePath('/');
-
-    return { success: true, data: newProduct };
   } catch (error) {
     console.error('[ACTIONS_CREATE_PRODUCT_ERROR]:', error);
     return {
@@ -452,34 +482,32 @@ export async function createProduct(rawData: ProductFormValues) {
   }
 }
 
-/**
- * Safely deletes a product and prevents deleting if associated with past customer orders
- */
 export async function deleteProduct(id: string) {
   try {
     await verifyAdmin();
 
-    // Check if any variant is referenced in order items
-    const orderItemCount = await prisma.orderItem.count({
-      where: { variant: { productId: id } },
+    return await withDbRetry(async () => {
+      const orderItemCount = await prisma.orderItem.count({
+        where: { variant: { productId: id } },
+      });
+
+      if (orderItemCount > 0) {
+        return {
+          success: false,
+          error: 'Cannot delete this product because it is linked to existing customer orders.',
+        };
+      }
+
+      await prisma.product.delete({
+        where: { id },
+      });
+
+      revalidatePath('/admin/products');
+      revalidatePath('/shop');
+      revalidatePath('/');
+
+      return { success: true, message: 'Product deleted successfully.' };
     });
-
-    if (orderItemCount > 0) {
-      return {
-        success: false,
-        error: 'Cannot delete this product because it is linked to existing customer orders.',
-      };
-    }
-
-    await prisma.product.delete({
-      where: { id },
-    });
-
-    revalidatePath('/admin/products');
-    revalidatePath('/shop');
-    revalidatePath('/');
-
-    return { success: true, message: 'Product deleted successfully.' };
   } catch (error) {
     console.error('[ACTIONS_DELETE_PRODUCT_ERROR]:', error);
     return {

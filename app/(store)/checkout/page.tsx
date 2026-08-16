@@ -1,7 +1,7 @@
 // app/(store)/checkout/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -28,6 +28,7 @@ import { useCartStore } from '@/lib/cart-store';
 import { checkoutFormSchema, CheckoutFormValues } from '@/schemas/checkout';
 import { getStripe } from '@/lib/stripe-client';
 import { StripePaymentForm } from '@/components/checkout/stripe-payment-form';
+import { createCashOnDeliveryOrder } from '@/actions/order';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function CheckoutPage() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [activeOrderNumber, setActiveOrderNumber] = useState<string | null>(null);
 
   const {
@@ -73,6 +75,7 @@ export default function CheckoutPage() {
     mode: 'onTouched',
   });
 
+  // Autofill verified user data from Clerk
   useEffect(() => {
     if (isUserLoaded && user) {
       if (user.primaryEmailAddress?.emailAddress) {
@@ -90,7 +93,7 @@ export default function CheckoutPage() {
   const shipping = items.length === 0 ? 0 : subtotal > 200 ? 0 : deliveryFee;
   const grandTotal = Math.max(0, subtotal - discountAmount + shipping);
 
-  const handleApplyPromo = (e: React.FormEvent) => {
+  const handleApplyPromo = (e: FormEvent) => {
     e.preventDefault();
     if (promoInput.trim()) {
       const success = applyPromoCode(promoInput);
@@ -100,20 +103,46 @@ export default function CheckoutPage() {
     }
   };
 
-  const onSubmit: SubmitHandler<CheckoutFormValues> = async (data) => {
+  const onShippingSubmit: SubmitHandler<CheckoutFormValues> = async (data) => {
     setIsSubmitting(true);
     setCheckoutError(null);
 
     try {
-      // Send complete variant & product metadata for resilient resolution
       const formattedItems = items.map((item) => ({
         variantId: item.variantId || item.id,
         productId: item.productId,
         size: item.size,
         color: item.color,
         quantity: item.quantity,
+        price: item.price,
       }));
 
+      // Cash On Delivery Flow
+      if (data.paymentMethod === 'COD') {
+        const codResult = await createCashOnDeliveryOrder({
+          customerName: `${data.firstName.trim()} ${data.lastName.trim()}`,
+          customerEmail: data.email.trim(),
+          shippingAddress: `${data.address}${data.apartment ? ', ' + data.apartment : ''}`,
+          city: data.city.trim(),
+          postalCode: data.postalCode.trim(),
+          country: 'United States',
+          items: formattedItems,
+          subtotal,
+          shippingFee: shipping,
+          discount: discountAmount,
+          total: grandTotal,
+        });
+
+        if (!codResult.success || !codResult.data?.orderNumber) {
+          throw new Error(codResult.error || 'Failed to place Cash on Delivery order.');
+        }
+
+        clearCart();
+        router.replace(`/order-confirmation?orderNumber=${codResult.data.orderNumber}`);
+        return;
+      }
+
+      // Credit / Debit Card (Stripe Intent Initialization)
       const payload = {
         items: formattedItems,
         customerName: `${data.firstName.trim()} ${data.lastName.trim()}`,
@@ -131,18 +160,12 @@ export default function CheckoutPage() {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to initialize order checkout.');
+        throw new Error(result.error || 'Failed to initialize payment gateway.');
       }
 
-      const { clientSecret: returnedSecret, orderNumber } = result.data;
-      setActiveOrderNumber(orderNumber);
-
-      if (data.paymentMethod === 'CARD') {
-        setClientSecret(returnedSecret);
-      } else {
-        clearCart();
-        router.push(`/order-confirmation?orderNumber=${orderNumber}`);
-      }
+      setClientSecret(result.data.clientSecret);
+      setActiveOrderId(result.data.orderId);
+      setActiveOrderNumber(result.data.orderNumber);
     } catch (error) {
       console.error('[CHECKOUT_SUBMISSION_ERROR]:', error);
       setCheckoutError(
@@ -221,7 +244,7 @@ export default function CheckoutPage() {
           CHECKOUT
         </h1>
 
-        {/* Error Notification & Cart Reset CTA */}
+        {/* Error Notification */}
         {checkoutError && (
           <div className="mb-6 p-4 sm:p-5 rounded-[16px] bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-rose-600 dark:text-rose-400 text-sm font-medium">
             <div className="flex items-center gap-3">
@@ -242,384 +265,405 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <div className="flex flex-col lg:flex-row gap-5 xl:gap-8 items-start">
-            {/* Left Column: Shipping & Payment Details */}
-            <div className="w-full lg:w-[58%] xl:w-[715px] space-y-6 shrink-0">
-              {/* Shipping Address Card */}
-              <div className="bg-white dark:bg-zinc-900 rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-7 space-y-5">
-                <div className="flex items-center gap-2.5 border-b border-black/10 dark:border-zinc-800 pb-4">
-                  <Truck className="w-5 h-5" />
-                  <h2 className="font-satoshi font-bold text-[20px]">Shipping Details</h2>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
-                      Email Address *
-                    </label>
-                    <input
-                      type="email"
-                      disabled={!!clientSecret}
-                      placeholder="alex.smith@example.com"
-                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                      {...form.register('email')}
-                    />
-                    {form.formState.errors.email && (
-                      <p className="text-[12px] text-rose-600 px-3">
-                        {form.formState.errors.email.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
-                        First Name *
-                      </label>
-                      <input
-                        type="text"
-                        disabled={!!clientSecret}
-                        placeholder="Alex"
-                        className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                        {...form.register('firstName')}
-                      />
-                      {form.formState.errors.firstName && (
-                        <p className="text-[12px] text-rose-600 px-3">
-                          {form.formState.errors.firstName.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
-                        Last Name *
-                      </label>
-                      <input
-                        type="text"
-                        disabled={!!clientSecret}
-                        placeholder="Smith"
-                        className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                        {...form.register('lastName')}
-                      />
-                      {form.formState.errors.lastName && (
-                        <p className="text-[12px] text-rose-600 px-3">
-                          {form.formState.errors.lastName.message}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
-                      Street Address *
-                    </label>
-                    <input
-                      type="text"
-                      disabled={!!clientSecret}
-                      placeholder="123 Fashion Street"
-                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                      {...form.register('address')}
-                    />
-                    {form.formState.errors.address && (
-                      <p className="text-[12px] text-rose-600 px-3">
-                        {form.formState.errors.address.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">City *</label>
-                      <input
-                        type="text"
-                        disabled={!!clientSecret}
-                        placeholder="New York"
-                        className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                        {...form.register('city')}
-                      />
-                      {form.formState.errors.city && (
-                        <p className="text-[12px] text-rose-600 px-3">
-                          {form.formState.errors.city.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">State *</label>
-                      <input
-                        type="text"
-                        disabled={!!clientSecret}
-                        placeholder="NY"
-                        className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                        {...form.register('state')}
-                      />
-                      {form.formState.errors.state && (
-                        <p className="text-[12px] text-rose-600 px-3">
-                          {form.formState.errors.state.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
-                        Postal Code *
-                      </label>
-                      <input
-                        type="text"
-                        disabled={!!clientSecret}
-                        placeholder="10001"
-                        className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                        {...form.register('postalCode')}
-                      />
-                      {form.formState.errors.postalCode && (
-                        <p className="text-[12px] text-rose-600 px-3">
-                          {form.formState.errors.postalCode.message}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
-                      Phone Number *
-                    </label>
-                    <input
-                      type="tel"
-                      disabled={!!clientSecret}
-                      placeholder="+1 (555) 000-0000"
-                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
-                      {...form.register('phone')}
-                    />
-                    {form.formState.errors.phone && (
-                      <p className="text-[12px] text-rose-600 px-3">
-                        {form.formState.errors.phone.message}
-                      </p>
-                    )}
-                  </div>
-                </div>
+        {/* 2-Column Responsive Grid (No wrapping <form> tag) */}
+        <div className="flex flex-col lg:flex-row gap-5 xl:gap-8 items-start">
+          {/* Left Column: Shipping & Payment Cards */}
+          <div className="w-full lg:w-[58%] xl:w-[715px] space-y-6 shrink-0">
+            
+            {/* Form 1: Shipping Details Form */}
+            <form
+              id="shipping-form"
+              onSubmit={form.handleSubmit(onShippingSubmit)}
+              className="bg-white dark:bg-zinc-900 rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-7 space-y-5"
+            >
+              <div className="flex items-center gap-2.5 border-b border-black/10 dark:border-zinc-800 pb-4">
+                <Truck className="w-5 h-5" />
+                <h2 className="font-satoshi font-bold text-[20px]">Shipping Details</h2>
               </div>
 
-              {/* Payment Method Selector Card */}
-              <div className="bg-white dark:bg-zinc-900 rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-7 space-y-5">
-                <div className="flex items-center gap-2.5 border-b border-black/10 dark:border-zinc-800 pb-4">
-                  <CreditCard className="w-5 h-5" />
-                  <h2 className="font-satoshi font-bold text-[20px]">Payment Method</h2>
-                </div>
-
-                {!clientSecret && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div
-                      onClick={() => form.setValue('paymentMethod', 'CARD', { shouldValidate: true })}
-                      className={`cursor-pointer rounded-[16px] border p-4 flex flex-col justify-between space-y-3 transition-all ${
-                        selectedPaymentMethod === 'CARD'
-                          ? 'border-black dark:border-white bg-black/5 dark:bg-white/10 ring-1 ring-black dark:ring-white'
-                          : 'border-black/10 dark:border-zinc-800 hover:border-black/30'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <CreditCard className="w-5 h-5" />
-                        {selectedPaymentMethod === 'CARD' && (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-satoshi font-bold text-[14px]">Credit / Debit Card</p>
-                        <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
-                          Stripe Elements Gateway
-                        </p>
-                      </div>
-                    </div>
-
-                    <div
-                      onClick={() => form.setValue('paymentMethod', 'COD', { shouldValidate: true })}
-                      className={`cursor-pointer rounded-[16px] border p-4 flex flex-col justify-between space-y-3 transition-all ${
-                        selectedPaymentMethod === 'COD'
-                          ? 'border-black dark:border-white bg-black/5 dark:bg-white/10 ring-1 ring-black dark:ring-white'
-                          : 'border-black/10 dark:border-zinc-800 hover:border-black/30'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <Banknote className="w-5 h-5 text-emerald-600" />
-                        {selectedPaymentMethod === 'COD' && (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-satoshi font-bold text-[14px]">Cash on Delivery</p>
-                        <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
-                          Pay upon delivery
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Stripe Elements Dynamic Container */}
-                {clientSecret && activeOrderNumber && (
-                  <div className="mt-4 pt-4 border-t border-black/10 dark:border-zinc-800 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs uppercase tracking-wider text-black/60 dark:text-zinc-400">
-                        Order Ref: {activeOrderNumber}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setClientSecret(null)}
-                        className="text-xs text-black dark:text-white underline font-medium cursor-pointer"
-                      >
-                        Edit Shipping
-                      </button>
-                    </div>
-
-                    <Elements
-                      stripe={getStripe()}
-                      options={{
-                        clientSecret,
-                        appearance: {
-                          theme: 'flat',
-                          variables: {
-                            colorPrimary: '#000000',
-                            borderRadius: '12px',
-                          },
-                        },
-                      }}
-                    >
-                      <StripePaymentForm
-                        totalAmount={grandTotal}
-                        orderNumber={activeOrderNumber}
-                        onSuccess={() => {
-                          clearCart();
-                          router.push(`/order-confirmation?orderNumber=${activeOrderNumber}`);
-                        }}
-                      />
-                    </Elements>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Right Column: Order Summary */}
-            <div className="w-full lg:flex-1 xl:w-[505px] shrink-0 sticky top-28">
-              <div className="bg-white dark:bg-zinc-900 rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-6 space-y-6">
-                <h2 className="font-satoshi font-bold text-[20px] sm:text-[24px] pb-4 border-b border-black/10 dark:border-zinc-800">
-                  Order Summary
-                </h2>
-
-                <div className="max-h-[240px] overflow-y-auto space-y-3 pr-1 divide-y divide-black/10 dark:divide-zinc-800 no-scrollbar">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 pt-3 first:pt-0">
-                      <div className="relative w-14 h-14 shrink-0 overflow-hidden rounded-[12px] border border-black/10 dark:border-zinc-800 bg-[#F0F0F0] dark:bg-zinc-800">
-                        <Image
-                          src={item.image || '/images/pd1.png'}
-                          alt={item.title}
-                          fill
-                          className="object-cover"
-                        />
-                        <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white font-satoshi">
-                          {item.quantity}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-satoshi font-bold text-[14px] truncate">
-                          {item.title}
-                        </h4>
-                        <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
-                          Size: {item.size} • Color: {item.color}
-                        </p>
-                      </div>
-                      <div className="font-satoshi font-bold text-[14px]">
-                        ${(item.price * item.quantity).toFixed(2)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Promo Code Input */}
-                <div className="flex gap-3 pt-2">
-                  <div className="relative flex-1">
-                    <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/40 dark:text-zinc-500" />
-                    <input
-                      type="text"
-                      placeholder="Add promo code"
-                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none pl-12 pr-4 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white"
-                      value={promoInput}
-                      onChange={(e) => setPromoInput(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleApplyPromo}
-                    className="h-[48px] px-6 rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[14px] hover:bg-black/80 dark:hover:bg-white/80 transition-all shrink-0 active:scale-95 cursor-pointer"
-                  >
-                    Apply
-                  </button>
-                </div>
-
-                {/* Pricing Ledger */}
-                <div className="space-y-3 pt-3 border-t border-black/10 dark:border-zinc-800 font-satoshi text-[15px] sm:text-[16px]">
-                  <div className="flex justify-between text-black/60 dark:text-zinc-400">
-                    <span>Subtotal</span>
-                    <span className="font-bold text-black dark:text-white">
-                      ${subtotal.toFixed(2)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-black/60 dark:text-zinc-400">
-                    <span>Delivery Fee</span>
-                    <span className="font-bold text-black dark:text-white">
-                      {shipping === 0 ? (
-                        <span className="text-emerald-600 uppercase text-xs font-bold">Free</span>
-                      ) : (
-                        `$${shipping.toFixed(2)}`
-                      )}
-                    </span>
-                  </div>
-
-                  {discountAmount > 0 && (
-                    <div className="flex justify-between text-emerald-600 font-medium">
-                      <span>Discount</span>
-                      <span>-${discountAmount.toFixed(2)}</span>
-                    </div>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    disabled={Boolean(clientSecret)}
+                    placeholder="alex.smith@example.com"
+                    className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                    {...form.register('email')}
+                  />
+                  {form.formState.errors.email && (
+                    <p className="text-[12px] text-rose-600 px-3">
+                      {form.formState.errors.email.message}
+                    </p>
                   )}
+                </div>
 
-                  <div className="flex justify-between pt-3 border-t border-black/10 dark:border-zinc-800 text-[20px] font-bold">
-                    <span>Total</span>
-                    <span>${grandTotal.toFixed(2)}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                      First Name *
+                    </label>
+                    <input
+                      type="text"
+                      disabled={Boolean(clientSecret)}
+                      placeholder="Alex"
+                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                      {...form.register('firstName')}
+                    />
+                    {form.formState.errors.firstName && (
+                      <p className="text-[12px] text-rose-600 px-3">
+                        {form.formState.errors.firstName.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                      Last Name *
+                    </label>
+                    <input
+                      type="text"
+                      disabled={Boolean(clientSecret)}
+                      placeholder="Smith"
+                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                      {...form.register('lastName')}
+                    />
+                    {form.formState.errors.lastName && (
+                      <p className="text-[12px] text-rose-600 px-3">
+                        {form.formState.errors.lastName.message}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                {!clientSecret && (
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-full h-[54px] rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[16px] flex items-center justify-center gap-2 hover:bg-black/80 dark:hover:bg-white/80 transition-all active:scale-95 shadow-md disabled:opacity-50 cursor-pointer"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Initializing Secure Gateway...</span>
-                      </>
-                    ) : selectedPaymentMethod === 'CARD' ? (
-                      <>
-                        <Lock className="w-4 h-4" />
-                        <span>Continue to Payment (${grandTotal.toFixed(2)})</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                        <span>Confirm Cash on Delivery (${grandTotal.toFixed(2)})</span>
-                      </>
-                    )}
-                  </button>
-                )}
+                <div className="space-y-1.5">
+                  <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                    Street Address *
+                  </label>
+                  <input
+                    type="text"
+                    disabled={Boolean(clientSecret)}
+                    placeholder="123 Fashion Street"
+                    className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                    {...form.register('address')}
+                  />
+                  {form.formState.errors.address && (
+                    <p className="text-[12px] text-rose-600 px-3">
+                      {form.formState.errors.address.message}
+                    </p>
+                  )}
+                </div>
 
-                <p className="font-satoshi text-[11px] text-center text-black/40 dark:text-zinc-500">
-                  By placing your order you agree to SHOP.CO Terms of Service & Privacy Policy.
-                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                      City *
+                    </label>
+                    <input
+                      type="text"
+                      disabled={Boolean(clientSecret)}
+                      placeholder="New York"
+                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                      {...form.register('city')}
+                    />
+                    {form.formState.errors.city && (
+                      <p className="text-[12px] text-rose-600 px-3">
+                        {form.formState.errors.city.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                      State *
+                    </label>
+                    <input
+                      type="text"
+                      disabled={Boolean(clientSecret)}
+                      placeholder="NY"
+                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                      {...form.register('state')}
+                    />
+                    {form.formState.errors.state && (
+                      <p className="text-[12px] text-rose-600 px-3">
+                        {form.formState.errors.state.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                      Postal Code *
+                    </label>
+                    <input
+                      type="text"
+                      disabled={Boolean(clientSecret)}
+                      placeholder="10001"
+                      className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                      {...form.register('postalCode')}
+                    />
+                    {form.formState.errors.postalCode && (
+                      <p className="text-[12px] text-rose-600 px-3">
+                        {form.formState.errors.postalCode.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-satoshi font-medium text-[13px] sm:text-[14px]">
+                    Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    disabled={Boolean(clientSecret)}
+                    placeholder="+1 (555) 000-0000"
+                    className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-5 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white disabled:opacity-60"
+                    {...form.register('phone')}
+                  />
+                  {form.formState.errors.phone && (
+                    <p className="text-[12px] text-rose-600 px-3">
+                      {form.formState.errors.phone.message}
+                    </p>
+                  )}
+                </div>
               </div>
+            </form>
+
+            {/* Payment Method Selector & Stripe Elements Container */}
+            <div className="bg-white dark:bg-zinc-900 rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-7 space-y-5">
+              <div className="flex items-center gap-2.5 border-b border-black/10 dark:border-zinc-800 pb-4">
+                <CreditCard className="w-5 h-5" />
+                <h2 className="font-satoshi font-bold text-[20px]">Payment Method</h2>
+              </div>
+
+              {!clientSecret && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div
+                    onClick={() => form.setValue('paymentMethod', 'CARD', { shouldValidate: true })}
+                    className={`cursor-pointer rounded-[16px] border p-4 flex flex-col justify-between space-y-3 transition-all ${
+                      selectedPaymentMethod === 'CARD'
+                        ? 'border-black dark:border-white bg-black/5 dark:bg-white/10 ring-1 ring-black dark:ring-white'
+                        : 'border-black/10 dark:border-zinc-800 hover:border-black/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <CreditCard className="w-5 h-5" />
+                      {selectedPaymentMethod === 'CARD' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-satoshi font-bold text-[14px]">Credit / Debit Card</p>
+                      <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
+                        Stripe Elements Gateway
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => form.setValue('paymentMethod', 'COD', { shouldValidate: true })}
+                    className={`cursor-pointer rounded-[16px] border p-4 flex flex-col justify-between space-y-3 transition-all ${
+                      selectedPaymentMethod === 'COD'
+                        ? 'border-black dark:border-white bg-black/5 dark:bg-white/10 ring-1 ring-black dark:ring-white'
+                        : 'border-black/10 dark:border-zinc-800 hover:border-black/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <Banknote className="w-5 h-5 text-emerald-600" />
+                      {selectedPaymentMethod === 'COD' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-satoshi font-bold text-[14px]">Cash on Delivery</p>
+                      <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
+                        Pay upon delivery
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Form 2: Standalone Stripe Elements Form (Non-nested) */}
+              {clientSecret && activeOrderId && activeOrderNumber && (
+                <div className="pt-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs uppercase tracking-wider text-black/60 dark:text-zinc-400">
+                      Order Reference: {activeOrderNumber}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClientSecret(null);
+                        setActiveOrderId(null);
+                        setActiveOrderNumber(null);
+                      }}
+                      className="text-xs text-black dark:text-white underline font-medium cursor-pointer"
+                    >
+                      Edit Shipping Info
+                    </button>
+                  </div>
+
+                  <Elements
+                    stripe={getStripe()}
+                    options={{
+                      clientSecret,
+                      appearance: {
+                        theme: 'flat',
+                        variables: {
+                          colorPrimary: '#000000',
+                          borderRadius: '12px',
+                        },
+                      },
+                    }}
+                  >
+                    <StripePaymentForm
+                      orderId={activeOrderId}
+                      orderNumber={activeOrderNumber}
+                      totalAmount={grandTotal}
+                      onSuccess={(orderNum) => {
+                        clearCart();
+                        router.replace(`/order-confirmation?orderNumber=${orderNum}`);
+                      }}
+                    />
+                  </Elements>
+                </div>
+              )}
             </div>
           </div>
-        </form>
+
+          {/* Right Column: Order Summary */}
+          <div className="w-full lg:flex-1 xl:w-[505px] shrink-0 sticky top-28">
+            <div className="bg-white dark:bg-zinc-900 rounded-[20px] border border-black/10 dark:border-zinc-800 p-5 sm:p-6 space-y-6">
+              <h2 className="font-satoshi font-bold text-[20px] sm:text-[24px] pb-4 border-b border-black/10 dark:border-zinc-800">
+                Order Summary
+              </h2>
+
+              <div className="max-h-[240px] overflow-y-auto space-y-3 pr-1 divide-y divide-black/10 dark:divide-zinc-800 no-scrollbar">
+                {items.map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 pt-3 first:pt-0">
+                    <div className="relative w-14 h-14 shrink-0 overflow-hidden rounded-[12px] border border-black/10 dark:border-zinc-800 bg-[#F0F0F0] dark:bg-zinc-800">
+                      <Image
+                        src={item.image || '/images/pd1.png'}
+                        alt={item.title}
+                        fill
+                        sizes="56px"
+                        className="object-cover"
+                      />
+                      <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white font-satoshi">
+                        {item.quantity}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-satoshi font-bold text-[14px] truncate">
+                        {item.title}
+                      </h4>
+                      <p className="font-satoshi text-[12px] text-black/60 dark:text-zinc-400">
+                        Size: {item.size} • Color: {item.color}
+                      </p>
+                    </div>
+                    <div className="font-satoshi font-bold text-[14px]">
+                      ${(item.price * item.quantity).toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Promo Code Input */}
+              <div className="flex gap-3 pt-2">
+                <div className="relative flex-1">
+                  <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/40 dark:text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Add promo code"
+                    className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none pl-12 pr-4 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  className="h-[48px] px-6 rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[14px] hover:bg-black/80 dark:hover:bg-white/80 transition-all shrink-0 active:scale-95 cursor-pointer"
+                >
+                  Apply
+                </button>
+              </div>
+
+              {/* Pricing Breakdown */}
+              <div className="space-y-3 pt-3 border-t border-black/10 dark:border-zinc-800 font-satoshi text-[15px] sm:text-[16px]">
+                <div className="flex justify-between text-black/60 dark:text-zinc-400">
+                  <span>Subtotal</span>
+                  <span className="font-bold text-black dark:text-white">
+                    ${subtotal.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-black/60 dark:text-zinc-400">
+                  <span>Delivery Fee</span>
+                  <span className="font-bold text-black dark:text-white">
+                    {shipping === 0 ? (
+                      <span className="text-emerald-600 uppercase text-xs font-bold">Free</span>
+                    ) : (
+                      `$${shipping.toFixed(2)}`
+                    )}
+                  </span>
+                </div>
+
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-medium">
+                    <span>Discount</span>
+                    <span>-${discountAmount.toFixed(2)}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between pt-3 border-t border-black/10 dark:border-zinc-800 text-[20px] font-bold">
+                  <span>Total</span>
+                  <span>${grandTotal.toFixed(2)} USD</span>
+                </div>
+              </div>
+
+              {/* Shipping / COD Submission Trigger */}
+              {!clientSecret ? (
+                <button
+                  type="submit"
+                  form="shipping-form"
+                  disabled={isSubmitting}
+                  className="w-full h-[54px] rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[16px] flex items-center justify-center gap-2 hover:bg-black/80 dark:hover:bg-white/80 transition-all active:scale-95 shadow-md disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      <span>Initializing Gateway...</span>
+                    </>
+                  ) : selectedPaymentMethod === 'CARD' ? (
+                    <>
+                      <Lock className="w-4 h-4 mr-2" />
+                      <span>Continue to Payment (${grandTotal.toFixed(2)})</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-500 mr-2" />
+                      <span>Confirm Cash on Delivery (${grandTotal.toFixed(2)})</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="rounded-[16px] bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-3.5 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Shipping verified. Complete payment on the left.</span>
+                </div>
+              )}
+
+              <p className="font-satoshi text-[11px] text-center text-black/40 dark:text-zinc-500">
+                By placing your order you agree to SHOP.CO Terms of Service & Privacy Policy.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1,28 +1,74 @@
 // constants/shop.ts
+import { Gender } from '@prisma/client';
 
-export const SHOP_COLORS = [
-  { name: 'Green', hex: '#00C12B' },
-  { name: 'Red', hex: '#F50606' },
-  { name: 'Yellow', hex: '#F5DD06' },
-  { name: 'Orange', hex: '#F57906' },
-  { name: 'Cyan', hex: '#06CAF5' },
-  { name: 'Blue', hex: '#063AF5' },
-  { name: 'Purple', hex: '#7D06F5' },
-  { name: 'Pink', hex: '#F506A4' },
-  { name: 'White', hex: '#FFFFFF' },
-  { name: 'Black', hex: '#000000' },
-] as const;
+export interface SubCategoryItem {
+  name: string;
+  slug: string;
+}
 
-export const SHOP_SIZES = [
-  'XX-Small',
-  'X-Small',
-  'Small',
-  'Medium',
-  'Large',
-  'X-Large',
-  'XX-Large',
-  '3X-Large',
-  '4X-Large',
-] as const;
+export interface DepartmentTaxonomy {
+  name: string;
+  gender: Gender;
+  href: string;
+  subcategories: SubCategoryItem[];
+}
 
-export const SHOP_DRESS_STYLES = ['Casual', 'Formal', 'Party', 'Gym'] as const;
+export const DEPARTMENT_TAXONOMY: Record<Gender, DepartmentTaxonomy> = {
+  MEN: {
+    name: 'Men',
+    gender: 'MEN',
+    href: '/shop?gender=men',
+    subcategories: [
+      { name: 'T-shirts', slug: 't-shirts' },
+      { name: 'Shirts', slug: 'shirts' },
+      { name: 'Jeans', slug: 'jeans' },
+      { name: 'Shorts', slug: 'shorts' },
+    ],
+  },
+  WOMEN: {
+    name: 'Women',
+    gender: 'WOMEN',
+    href: '/shop?gender=women',
+    subcategories: [
+      { name: 'Tops & Tees', slug: 'tops' },
+      { name: 'Dresses', slug: 'dresses' },
+      { name: 'Jeans', slug: 'jeans' },
+      { name: 'Jackets', slug: 'jackets' },
+    ],
+  },
+  KIDS: {
+    name: 'Kids',
+    gender: 'KIDS',
+    href: '/shop?gender=kids',
+    subcategories: [
+      { name: 'Casual Wear', slug: 'casual' },
+      { name: 'Outerwear', slug: 'outerwear' },
+      { name: 'Sets', slug: 'sets' },
+    ],
+  },
+  UNISEX: {
+    name: 'Unisex',
+    gender: 'UNISEX',
+    href: '/shop?gender=unisex',
+    subcategories: [
+      { name: 'T-shirts', slug: 't-shirts' },
+      { name: 'Shirts', slug: 'shirts' },
+      { name: 'Jeans', slug: 'jeans' },
+      { name: 'Jackets', slug: 'jackets' },
+      { name: 'Outerwear', slug: 'outerwear' },
+    ],
+  },
+};
+
+export const ALL_TAXONOMY_CATEGORIES: SubCategoryItem[] = [
+  { name: 'T-shirts', slug: 't-shirts' },
+  { name: 'Shirts', slug: 'shirts' },
+  { name: 'Jeans', slug: 'jeans' },
+  { name: 'Shorts', slug: 'shorts' },
+  { name: 'Tops & Tees', slug: 'tops' },
+  { name: 'Dresses', slug: 'dresses' },
+  { name: 'Jackets', slug: 'jackets' },
+  { name: 'Casual Wear', slug: 'casual' },
+  { name: 'Outerwear', slug: 'outerwear' },
+  { name: 'Sets', slug: 'sets' },
+];

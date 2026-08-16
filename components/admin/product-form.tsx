@@ -1,7 +1,7 @@
 // components/admin/product-form.tsx
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useRef, useEffect, useMemo, ChangeEvent, DragEvent } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
@@ -14,7 +14,8 @@ import {
 import { zodResolver } from '@hookform/resolvers/zod';
 import { createProduct } from '@/actions/product';
 import { productFormSchema, ProductFormValues } from '@/schemas/product';
-import { DressStyle } from '@prisma/client';
+import { DressStyle, Gender } from '@prisma/client';
+import { DEPARTMENT_TAXONOMY } from '@/constants/shop';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +26,8 @@ import {
   Image as ImageIcon,
   AlertCircle,
   Sparkles,
+  UploadCloud,
+  FileImage,
 } from 'lucide-react';
 
 interface ProductFormProps {
@@ -32,6 +35,12 @@ interface ProductFormProps {
 }
 
 const AVAILABLE_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'] as const;
+const GENDERS: Array<{ label: string; value: Gender }> = [
+  { label: "Men's Apparel", value: 'MEN' },
+  { label: "Women's Apparel", value: 'WOMEN' },
+  { label: "Kids' Apparel", value: 'KIDS' },
+  { label: 'Unisex', value: 'UNISEX' },
+];
 const DRESS_STYLES: DressStyle[] = ['CASUAL', 'FORMAL', 'PARTY', 'GYM'];
 
 export function ProductForm({ categories }: ProductFormProps) {
@@ -40,6 +49,9 @@ export function ProductForm({ categories }: ProductFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isDraft, setIsDraft] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
@@ -49,13 +61,12 @@ export function ProductForm({ categories }: ProductFormProps) {
       description: '',
       basePrice: 120.0,
       discountPercentage: 0,
-      categoryId: categories[0]?.id || '',
+      gender: 'MEN',
+      categoryId: '',
       dressStyle: 'CASUAL',
       isFeatured: false,
       isNewArrival: true,
-      images: [
-        { url: '/images/hero1.png', isPrimary: true },
-      ],
+      images: [{ url: '/images/hero1.png', isPrimary: true }],
       variants: [
         {
           sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}-M-BLK`,
@@ -78,6 +89,39 @@ export function ProductForm({ categories }: ProductFormProps) {
     formState: { errors },
   } = form;
 
+  const selectedGender = watch('gender');
+  const currentCategoryId = watch('categoryId');
+  const watchTitle = watch('title');
+  const watchedImages = watch('images');
+
+  // Reactively calculate available subcategories for the selected department
+  const availableCategories = useMemo(() => {
+    const departmentConfig = DEPARTMENT_TAXONOMY[selectedGender] || DEPARTMENT_TAXONOMY.MEN;
+    const allowedSlugs = departmentConfig.subcategories.map((s) => s.slug.toLowerCase());
+
+    // Match database category records against the department subcategories
+    const matched = categories.filter((cat) =>
+      allowedSlugs.some(
+        (slug) =>
+          cat.slug.toLowerCase() === slug ||
+          cat.name.toLowerCase().includes(slug) ||
+          slug.includes(cat.slug.toLowerCase())
+      )
+    );
+
+    return matched.length > 0 ? matched : categories;
+  }, [categories, selectedGender]);
+
+  // Synchronize categoryId when department changes
+  useEffect(() => {
+    if (availableCategories.length > 0) {
+      const isCurrentValid = availableCategories.some((c) => c.id === currentCategoryId);
+      if (!isCurrentValid) {
+        setValue('categoryId', availableCategories[0].id, { shouldValidate: true });
+      }
+    }
+  }, [availableCategories, currentCategoryId, setValue]);
+
   const {
     fields: imageFields,
     append: appendImage,
@@ -96,9 +140,6 @@ export function ProductForm({ categories }: ProductFormProps) {
     name: 'variants',
   });
 
-  const watchTitle = watch('title');
-  const watchedImages = watch('images');
-
   const handleGenerateSlug = () => {
     if (!watchTitle) return;
     const generated = watchTitle
@@ -108,6 +149,50 @@ export function ProductForm({ categories }: ProductFormProps) {
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
     setValue('slug', generated, { shouldValidate: true });
+  };
+
+  const processFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) {
+        alert('Please select valid image files only (PNG, JPG, WEBP).');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Url = event.target?.result as string;
+        if (base64Url) {
+          appendImage({
+            url: base64Url,
+            isPrimary: imageFields.length === 0,
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    processFiles(e.target.files);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    processFiles(e.dataTransfer.files);
   };
 
   const onSubmit: SubmitHandler<ProductFormValues> = (data) => {
@@ -138,6 +223,7 @@ export function ProductForm({ categories }: ProductFormProps) {
     if (formErrors.slug) errorList.push(`Slug: ${formErrors.slug.message}`);
     if (formErrors.description) errorList.push(`Description: ${formErrors.description.message}`);
     if (formErrors.basePrice) errorList.push(`Base Price: ${formErrors.basePrice.message}`);
+    if (formErrors.gender) errorList.push(`Department: ${formErrors.gender.message}`);
     if (formErrors.categoryId) errorList.push(`Category: ${formErrors.categoryId.message}`);
     if (formErrors.images) {
       if (formErrors.images.message) {
@@ -160,12 +246,6 @@ export function ProductForm({ categories }: ProductFormProps) {
     }
 
     setValidationErrors(errorList);
-  };
-
-  const handleAddImageRow = () => {
-    const defaultImages = ['/images/m2.png', '/images/n3.png', '/images/n2.png', '/images/m3.png'];
-    const nextUrl = defaultImages[imageFields.length % defaultImages.length];
-    appendImage({ url: nextUrl, isPrimary: imageFields.length === 0 });
   };
 
   const handleAddVariantRow = () => {
@@ -202,7 +282,7 @@ export function ProductForm({ categories }: ProductFormProps) {
               Add New Product
             </h1>
             <p className="text-xs text-black/60 dark:text-zinc-400">
-              Configure inventory, multi-variant matrices, and pricing.
+              Configure department hierarchy, categories, multi-variant matrices, and gallery media.
             </p>
           </div>
         </div>
@@ -254,7 +334,7 @@ export function ProductForm({ categories }: ProductFormProps) {
 
       {/* 2-Column Form Layout */}
       <div className="grid gap-6 lg:grid-cols-12">
-        {/* Left Column (8 cols): Details, Images, Variants */}
+        {/* Left Column: Details, Gallery, Variants */}
         <div className="lg:col-span-8 space-y-6">
           {/* General Details */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
@@ -316,27 +396,57 @@ export function ProductForm({ categories }: ProductFormProps) {
             </CardContent>
           </Card>
 
-          {/* Images Manager */}
+          {/* Media Gallery */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-black/10 dark:border-zinc-800 pb-3">
               <div>
-                <h3 className="font-bold text-base text-black dark:text-white">Product Images</h3>
+                <h3 className="font-bold text-base text-black dark:text-white">Product Gallery</h3>
                 <p className="text-xs text-black/60 dark:text-zinc-400">
-                  Provide image paths (e.g. <span className="font-mono">/images/hero1.png</span>) or CDN URLs.
+                  Upload photos directly from your computer or paste image URLs.
                 </p>
               </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png, image/jpeg, image/webp, image/gif"
+                multiple
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleAddImageRow}
-                className="h-8 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-8 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800 gap-1.5"
               >
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add Image
+                <UploadCloud className="h-3.5 w-3.5" /> Upload from Computer
               </Button>
             </div>
 
-            <div className="space-y-3">
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-[16px] p-6 text-center cursor-pointer transition-all duration-200 ${
+                isDragging
+                  ? 'border-black dark:border-white bg-black/5 dark:bg-white/5 scale-[0.99]'
+                  : 'border-black/10 dark:border-zinc-800 bg-[#F0F0F0]/50 dark:bg-black/50 hover:bg-[#F0F0F0] dark:hover:bg-zinc-900'
+              }`}
+            >
+              <FileImage className="h-8 w-8 mx-auto text-black/40 dark:text-zinc-500 mb-2" />
+              <p className="text-xs font-bold text-black dark:text-white">
+                Drag and drop your photos here, or <span className="underline">browse files</span>
+              </p>
+              <p className="text-[11px] text-black/40 dark:text-zinc-500 mt-0.5">
+                Supports PNG, JPG, or WEBP up to 5MB
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-2">
               {imageFields.map((field, idx) => {
                 const currentUrl = watchedImages?.[idx]?.url || '';
                 return (
@@ -344,12 +454,11 @@ export function ProductForm({ categories }: ProductFormProps) {
                     key={field.id}
                     className="flex items-center gap-3 p-3 rounded-[16px] border border-black/10 dark:border-zinc-800 bg-[#F0F0F0]/40 dark:bg-black/40"
                   >
-                    {/* Thumbnail Preview */}
-                    <div className="relative h-11 w-11 rounded-[10px] overflow-hidden bg-white dark:bg-zinc-900 border border-black/10 dark:border-zinc-800 shrink-0">
+                    <div className="relative h-12 w-12 rounded-[10px] overflow-hidden bg-white dark:bg-zinc-900 border border-black/10 dark:border-zinc-800 shrink-0">
                       {currentUrl ? (
                         <Image
                           src={currentUrl}
-                          alt={`Thumbnail ${idx + 1}`}
+                          alt={`Product photo ${idx + 1}`}
                           fill
                           className="object-cover"
                           unoptimized
@@ -361,7 +470,7 @@ export function ProductForm({ categories }: ProductFormProps) {
 
                     <div className="flex-1 space-y-1">
                       <Input
-                        placeholder="/images/hero1.png or https://..."
+                        placeholder="Image URL or Base64 data..."
                         className="h-8.5 text-xs rounded-[62px] bg-white dark:bg-zinc-900 border-none text-black dark:text-white"
                         {...register(`images.${idx}.url`)}
                       />
@@ -399,7 +508,7 @@ export function ProductForm({ categories }: ProductFormProps) {
             </div>
           </Card>
 
-          {/* Variants Matrix */}
+          {/* Variant Matrix */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-black/10 dark:border-zinc-800 pb-3">
               <div>
@@ -516,7 +625,7 @@ export function ProductForm({ categories }: ProductFormProps) {
           </Card>
         </div>
 
-        {/* Right Column (4 cols): Pricing, Classification & Visibility */}
+        {/* Right Column: Pricing, Classification, and Visibility */}
         <div className="lg:col-span-4 space-y-6">
           {/* Pricing */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
@@ -549,17 +658,43 @@ export function ProductForm({ categories }: ProductFormProps) {
             </div>
           </Card>
 
-          {/* Classification */}
+          {/* Classification (Reactive Department + Category Hierarchy) */}
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
             <h3 className="font-bold text-base text-black dark:text-white">Classification</h3>
             <div className="space-y-3">
+              {/* Target Department Selection */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-black dark:text-white">Category</label>
+                <label className="text-xs font-bold text-black dark:text-white">Target Department</label>
                 <select
-                  className="w-full h-9 rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-4 text-xs text-black dark:text-white focus:outline-none cursor-pointer"
+                  className="w-full h-9 rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-4 text-xs text-black dark:text-white focus:outline-none cursor-pointer font-medium"
+                  {...register('gender')}
+                >
+                  {GENDERS.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+                {errors.gender && (
+                  <p className="text-[11px] text-rose-500">{errors.gender.message}</p>
+                )}
+              </div>
+
+              {/* Dynamically Filtered Subcategory Dropdown */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-black dark:text-white">
+                    Apparel Subcategory
+                  </label>
+                  <span className="text-[10px] text-black/50 dark:text-zinc-400 font-medium">
+                    Filtered for {DEPARTMENT_TAXONOMY[selectedGender]?.name || 'Department'}
+                  </span>
+                </div>
+                <select
+                  className="w-full h-9 rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-4 text-xs text-black dark:text-white focus:outline-none cursor-pointer font-medium"
                   {...register('categoryId')}
                 >
-                  {categories.map((c) => (
+                  {availableCategories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
@@ -570,10 +705,11 @@ export function ProductForm({ categories }: ProductFormProps) {
                 )}
               </div>
 
+              {/* Dress Style */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-black dark:text-white">Dress Style</label>
                 <select
-                  className="w-full h-9 rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-4 text-xs text-black dark:text-white focus:outline-none cursor-pointer"
+                  className="w-full h-9 rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none px-4 text-xs text-black dark:text-white focus:outline-none cursor-pointer font-medium"
                   {...register('dressStyle')}
                 >
                   {DRESS_STYLES.map((style) => (

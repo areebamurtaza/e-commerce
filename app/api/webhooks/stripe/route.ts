@@ -1,111 +1,126 @@
 // app/api/webhooks/stripe/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import Stripe from 'stripe';
-import { prisma } from '@/lib/prisma';
+import { prisma, withDbRetry } from '@/lib/prisma';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { revalidatePath } from 'next/cache';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2025-02-24.acacia' as Stripe.LatestApiVersion,
+  typescript: true,
 });
 
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
+
 export async function POST(req: NextRequest) {
-  const body = await req.text();
-  const signature = req.headers.get('stripe-signature');
-
-  if (!signature || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return NextResponse.json(
-      { error: 'Missing stripe signature or webhook secret.' },
-      { status: 400 }
-    );
-  }
-
-  let event: Stripe.Event;
-
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown webhook error';
-    console.error(`❌ Webhook signature verification failed: ${message}`);
-    return NextResponse.json({ error: `Webhook Error: ${message}` }, { status: 400 });
-  }
+    const rawBody = await req.text();
+    const headersList = await headers();
+    const signature = headersList.get('stripe-signature');
 
-  // Handle successful payments
-  if (event.type === 'payment_intent.succeeded') {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
-    const orderNumber = paymentIntent.metadata?.orderNumber;
+    if (!signature || !webhookSecret) {
+      console.error('[STRIPE_WEBHOOK_ERROR]: Missing signature or STRIPE_WEBHOOK_SECRET');
+      return NextResponse.json({ error: 'Webhook configuration error' }, { status: 400 });
+    }
 
-    if (orderNumber) {
-      try {
-        await prisma.$transaction(async (tx) => {
-          // 1. Fetch order and its purchased items
-          const order = await tx.order.findUnique({
-            where: { orderNumber },
+    let event: Stripe.Event;
+
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    } catch (err) {
+      console.error('[STRIPE_WEBHOOK_VERIFY_ERROR]:', err instanceof Error ? err.message : err);
+      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
+    }
+
+    // 1. Payment Succeeded (Reconcile Order & Deduct Stock Permanently)
+    if (event.type === 'payment_intent.succeeded') {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const orderId = paymentIntent.metadata?.orderId;
+
+      if (orderId) {
+        await withDbRetry(async () => {
+          const order = await prisma.order.findUnique({
+            where: { id: orderId },
             include: { items: true },
           });
 
-          if (!order) {
-            console.error(`⚠️ Order not found for webhook: ${orderNumber}`);
-            return;
-          }
+          if (order && order.paymentStatus !== PaymentStatus.SUCCEEDED) {
+            await prisma.$transaction(async (tx) => {
+              // Decrement variant stock permanently
+              for (const item of order.items) {
+                const variant = await tx.productVariant.findUnique({
+                  where: { id: item.variantId },
+                });
 
-          // 2. Mark order as Processing and Payment as Succeeded
-          await tx.order.update({
-            where: { id: order.id },
-            data: {
-              status: OrderStatus.PROCESSING,
-              paymentStatus: PaymentStatus.SUCCEEDED,
-            },
-          });
+                if (variant) {
+                  await tx.productVariant.update({
+                    where: { id: item.variantId },
+                    data: {
+                      stockQuantity: {
+                        decrement: Math.min(variant.stockQuantity, item.quantity),
+                      },
+                    },
+                  });
+                }
+              }
 
-          await tx.payment.updateMany({
-            where: { orderId: order.id },
-            data: {
-              status: PaymentStatus.SUCCEEDED,
-              stripePaymentIntentId: paymentIntent.id,
-            },
-          });
+              // Fee calculation (2.9% + $0.30)
+              const fee = Number((order.total * 0.029 + 0.3).toFixed(2));
+              const netAmount = Number((order.total - fee).toFixed(2));
 
-          // 3. Atomically decrement stock quantities for each variant
-          for (const item of order.items) {
-            await tx.productVariant.update({
-              where: { id: item.variantId },
-              data: {
-                stockQuantity: {
-                  decrement: item.quantity,
+              await tx.order.update({
+                where: { id: orderId },
+                data: {
+                  status: OrderStatus.PROCESSING,
+                  paymentStatus: PaymentStatus.SUCCEEDED,
+                  expiresAt: null, // Clear 30-minute timer
                 },
-              },
+              });
+
+              await tx.payment.updateMany({
+                where: { orderId },
+                data: {
+                  status: PaymentStatus.SUCCEEDED,
+                  stripePaymentIntentId: paymentIntent.id,
+                  fee,
+                  netAmount,
+                },
+              });
             });
           }
         });
 
-        console.log(`✅ Order ${orderNumber} successfully fulfilled via Stripe Webhook.`);
-      } catch (dbError) {
-        console.error(`❌ Database error during order fulfillment:`, dbError);
-        return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
+        revalidatePath('/admin/orders');
+        revalidatePath('/admin/payments');
+        revalidatePath('/shop');
       }
     }
-  }
 
-  // Handle payment failures
-  if (event.type === 'payment_intent.payment_failed') {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
-    const orderNumber = paymentIntent.metadata?.orderNumber;
+    // 2. Payment Cancelled / Expired (Release Stock & Cancel Order)
+    if (
+      event.type === 'payment_intent.canceled' ||
+      event.type === 'payment_intent.payment_failed'
+    ) {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const orderId = paymentIntent.metadata?.orderId;
 
-    if (orderNumber) {
-      await prisma.order.updateMany({
-        where: { orderNumber },
-        data: {
-          status: OrderStatus.CANCELLED,
-          paymentStatus: PaymentStatus.FAILED,
-        },
-      });
-      console.warn(`⚠️ Payment failed for order ${orderNumber}`);
+      if (orderId) {
+        await withDbRetry(async () => {
+          await prisma.order.updateMany({
+            where: { id: orderId, paymentStatus: PaymentStatus.PENDING },
+            data: {
+              status: OrderStatus.CANCELLED,
+              paymentStatus: PaymentStatus.FAILED,
+            },
+          });
+        });
+      }
     }
-  }
 
-  return NextResponse.json({ received: true }, { status: 200 });
+    return NextResponse.json({ received: true });
+  } catch (error) {
+    console.error('[STRIPE_WEBHOOK_HANDLER_ERROR]:', error);
+    return NextResponse.json({ error: 'Internal webhook error' }, { status: 500 });
+  }
 }

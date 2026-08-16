@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
@@ -40,6 +42,13 @@ enum DressStyle {
   FORMAL
   PARTY
   GYM
+}
+
+enum Gender {
+  MEN
+  WOMEN
+  KIDS
+  UNISEX
 }
 
 model User {
@@ -98,6 +107,7 @@ model Product {
   discountPercentage Float            @default(0)
   rating             Float            @default(0)
   reviewCount        Int              @default(0)
+  gender             Gender           @default(MEN)
   dressStyle         DressStyle       @default(CASUAL)
   isFeatured         Boolean          @default(false)
   isNewArrival       Boolean          @default(true)
@@ -110,6 +120,7 @@ model Product {
   updatedAt          DateTime         @updatedAt
 
   @@index([categoryId])
+  @@index([gender])
   @@index([dressStyle])
   @@map("products")
 }
@@ -159,6 +170,7 @@ model Order {
   total           Float
   status          OrderStatus   @default(PENDING)
   paymentStatus   PaymentStatus @default(PENDING)
+  expiresAt       DateTime?     // 30-minute checkout reservation window
   items           OrderItem[]
   payment         Payment?
   createdAt       DateTime      @default(now())
@@ -167,6 +179,7 @@ model Order {
   @@index([userId])
   @@index([orderNumber])
   @@index([status])
+  @@index([expiresAt])
   @@map("orders")
 }
 

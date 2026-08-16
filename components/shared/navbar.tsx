@@ -1,3 +1,4 @@
+// components/shared/navbar.tsx
 'use client';
 
 import { useState, useEffect, FormEvent } from 'react';
@@ -15,6 +16,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { useCartStore } from '@/lib/cart-store';
+import { DEPARTMENT_TAXONOMY } from '@/constants/shop';
 
 function UserAccountIcon({ className = 'w-6 h-6' }: { className?: string }) {
   return (
@@ -35,38 +37,6 @@ function UserAccountIcon({ className = 'w-6 h-6' }: { className?: string }) {
   );
 }
 
-const NAV_CATEGORIES = [
-  {
-    name: 'Men',
-    href: '/shop?gender=men',
-    subcategories: [
-      { name: 'T-shirts', href: '/shop?category=men&type=t-shirts' },
-      { name: 'Shirts', href: '/shop?category=men&type=shirts' },
-      { name: 'Jeans', href: '/shop?category=men&type=jeans' },
-      { name: 'Shorts', href: '/shop?category=men&type=shorts' },
-    ],
-  },
-  {
-    name: 'Women',
-    href: '/shop?gender=women',
-    subcategories: [
-      { name: 'Tops & Tees', href: '/shop?category=women&type=tops' },
-      { name: 'Dresses', href: '/shop?category=women&type=dresses' },
-      { name: 'Jeans', href: '/shop?category=women&type=jeans' },
-      { name: 'Jackets', href: '/shop?category=women&type=jackets' },
-    ],
-  },
-  {
-    name: 'Kids',
-    href: '/shop?gender=kids',
-    subcategories: [
-      { name: 'Casual Wear', href: '/shop?category=kids&type=casual' },
-      { name: 'Outerwear', href: '/shop?category=kids&type=outerwear' },
-      { name: 'Sets', href: '/shop?category=kids&type=sets' },
-    ],
-  },
-];
-
 export function Navbar() {
   const router = useRouter();
   const { setTheme, resolvedTheme } = useTheme();
@@ -80,7 +50,6 @@ export function Navbar() {
 
   const totalCartCount = useCartStore((state) => state.getTotalItemsCount());
 
-  // Prevent SSR hydration mismatch
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -97,6 +66,12 @@ export function Navbar() {
       setIsSearchOpen(false);
     }
   };
+
+  const navDepartments = [
+    DEPARTMENT_TAXONOMY.MEN,
+    DEPARTMENT_TAXONOMY.WOMEN,
+    DEPARTMENT_TAXONOMY.KIDS,
+  ];
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white dark:bg-black border-b border-black/10 dark:border-zinc-800 text-black dark:text-white transition-colors duration-200">
@@ -144,19 +119,19 @@ export function Navbar() {
 
             {isShopDropdownOpen && (
               <div className="absolute top-full left-0 w-[540px] bg-white dark:bg-zinc-900 rounded-[16px] shadow-2xl border border-black/10 dark:border-zinc-800 p-6 grid grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-2 duration-150 z-50">
-                {NAV_CATEGORIES.map((cat) => (
-                  <div key={cat.name} className="flex flex-col gap-3">
+                {navDepartments.map((dept) => (
+                  <div key={dept.name} className="flex flex-col gap-3">
                     <Link
-                      href={cat.href}
+                      href={dept.href}
                       className="font-satoshi font-bold text-[16px] text-black dark:text-white hover:underline"
                     >
-                      {cat.name}
+                      {dept.name}
                     </Link>
                     <ul className="flex flex-col gap-2">
-                      {cat.subcategories.map((sub) => (
+                      {dept.subcategories.map((sub) => (
                         <li key={sub.name}>
                           <Link
-                            href={sub.href}
+                            href={`/shop?gender=${dept.gender.toLowerCase()}&category=${sub.slug}`}
                             className="font-satoshi font-normal text-[14px] text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
                           >
                             {sub.name}
@@ -214,10 +189,8 @@ export function Navbar() {
           />
         </form>
 
-        {/* Action Controls: Search (Mobile), Theme Toggle, Cart, Account */}
+        {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          
-          {/* Mobile Search Toggle Button */}
           <button
             type="button"
             onClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -227,7 +200,6 @@ export function Navbar() {
             <Search size={22} />
           </button>
 
-          {/* Theme Toggle Button */}
           <button
             type="button"
             onClick={toggleTheme}
@@ -246,7 +218,6 @@ export function Navbar() {
             )}
           </button>
 
-          {/* Shopping Cart Button with Dynamic Badge */}
           <Link
             href="/cart"
             className="p-1.5 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none relative inline-flex items-center justify-center rounded-full"
@@ -260,7 +231,6 @@ export function Navbar() {
             )}
           </Link>
 
-          {/* User Account Link */}
           <Link
             href="/account"
             className="p-1.5 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none rounded-full"
@@ -271,29 +241,6 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* Mobile Search Input Drawer */}
-      {isSearchOpen && (
-        <div className="sm:hidden px-4 pb-3 animate-in slide-in-from-top-2 duration-200">
-          <form
-            onSubmit={handleSearchSubmit}
-            className="w-full h-[44px] bg-[#F0EEED] dark:bg-zinc-900 border border-transparent dark:border-zinc-800 rounded-[62px] px-4 flex items-center gap-3"
-          >
-            <button type="submit" aria-label="Submit search" className="text-black/40 dark:text-zinc-500 p-0.5">
-              <Search size={18} className="shrink-0" />
-            </button>
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for products..."
-              className="w-full bg-transparent font-satoshi font-normal text-[14px] text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none"
-              autoFocus
-              aria-label="Search products mobile"
-            />
-          </form>
-        </div>
-      )}
-
       {/* Mobile Menu Drawer */}
       {isMobileMenuOpen && (
         <div className="lg:hidden border-t border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 py-6 flex flex-col gap-4 animate-in fade-in duration-200">
@@ -301,31 +248,31 @@ export function Navbar() {
             <span className="font-satoshi font-semibold text-[18px] text-black dark:text-white">
               Shop Categories
             </span>
-            {NAV_CATEGORIES.map((cat) => (
-              <div key={cat.name} className="flex flex-col pl-2">
+            {navDepartments.map((dept) => (
+              <div key={dept.name} className="flex flex-col pl-2">
                 <button
                   type="button"
                   onClick={() =>
                     setActiveMobileCategory(
-                      activeMobileCategory === cat.name ? null : cat.name
+                      activeMobileCategory === dept.name ? null : dept.name
                     )
                   }
                   className="flex items-center justify-between py-2 text-left font-satoshi font-medium text-[16px] text-black/80 dark:text-zinc-300 cursor-pointer"
                 >
-                  <span>{cat.name}</span>
+                  <span>{dept.name}</span>
                   <ChevronRight
                     size={16}
                     className={`transition-transform ${
-                      activeMobileCategory === cat.name ? 'rotate-90' : ''
+                      activeMobileCategory === dept.name ? 'rotate-90' : ''
                     }`}
                   />
                 </button>
-                {activeMobileCategory === cat.name && (
+                {activeMobileCategory === dept.name && (
                   <div className="pl-4 flex flex-col gap-2 py-1">
-                    {cat.subcategories.map((sub) => (
+                    {dept.subcategories.map((sub) => (
                       <Link
                         key={sub.name}
-                        href={sub.href}
+                        href={`/shop?gender=${dept.gender.toLowerCase()}&category=${sub.slug}`}
                         onClick={() => setIsMobileMenuOpen(false)}
                         className="font-satoshi text-[14px] text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
                       >

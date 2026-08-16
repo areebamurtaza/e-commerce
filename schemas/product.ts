@@ -22,14 +22,15 @@ export const productImageSchema = z.object({
   id: z.string().optional(),
   url: z
     .string()
-    .min(1, 'Image URL or file path is required')
+    .min(1, 'Image URL or file is required')
     .refine(
       (val) =>
         val.startsWith('/') ||
         val.startsWith('http://') ||
-        val.startsWith('https://'),
+        val.startsWith('https://') ||
+        val.startsWith('data:image/'),
       {
-        message: 'Must be a valid URL (https://) or local path starting with /',
+        message: 'Must be a valid URL, local path (/images/...) or uploaded image file',
       }
     ),
   isPrimary: z.boolean(),
@@ -58,6 +59,9 @@ export const productFormSchema = z.object({
     .min(0, 'Discount cannot be negative')
     .max(100, 'Discount cannot exceed 100%'),
   categoryId: z.string().min(1, 'Please select a category'),
+  gender: z.enum(['MEN', 'WOMEN', 'KIDS', 'UNISEX'], {
+    message: 'Please select a target department (Men, Women, Kids, Unisex)',
+  }),
   dressStyle: z.enum(['CASUAL', 'FORMAL', 'PARTY', 'GYM'], {
     message: 'Please select a dress style',
   }),

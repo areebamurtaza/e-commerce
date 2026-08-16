@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronRight, AlertTriangle } from 'lucide-react';
 import { getProducts } from '@/actions/product';
-import { DressStyle } from '@prisma/client';
+import { DressStyle, Gender } from '@prisma/client';
 import { ProductCard, ProductCardData } from '@/components/home/product-card';
 import { ShopFilters } from '@/components/shop/shop-filters';
 import { ShopHeaderSort } from '@/components/shop/shop-header-sort';
@@ -21,6 +21,7 @@ interface ShopPageProps {
     discount?: string;
     gender?: string;
     category?: string;
+    type?: string;
     style?: string;
     minPrice?: string;
     maxPrice?: string;
@@ -33,7 +34,7 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
   const resolvedSearchParams = await searchParams;
 
   const searchQuery = resolvedSearchParams.search || '';
-  const categoryQuery = resolvedSearchParams.category || '';
+  const categoryQuery = resolvedSearchParams.category || resolvedSearchParams.type || '';
   const genderQuery = resolvedSearchParams.gender || '';
   const styleQuery = resolvedSearchParams.style || '';
   const minPrice = resolvedSearchParams.minPrice ? Number(resolvedSearchParams.minPrice) : undefined;
@@ -74,11 +75,20 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
   const meta = result.data?.meta || { total: 0, page: 1, limit: 9, totalPages: 1 };
 
   // 4. Derive Page Heading
-  let pageTitle = 'Casual';
-  if (styleQuery) pageTitle = styleQuery;
-  else if (categoryQuery) pageTitle = categoryQuery;
-  else if (genderQuery) pageTitle = `${genderQuery.charAt(0).toUpperCase() + genderQuery.slice(1)}'s Collection`;
-  else if (searchQuery) pageTitle = `Results for "${searchQuery}"`;
+  let pageTitle = 'All Products';
+  if (genderQuery && categoryQuery) {
+    const gFormatted = genderQuery.charAt(0).toUpperCase() + genderQuery.slice(1).toLowerCase();
+    pageTitle = `${gFormatted}'s ${categoryQuery.charAt(0).toUpperCase() + categoryQuery.slice(1)}`;
+  } else if (genderQuery) {
+    const gFormatted = genderQuery.charAt(0).toUpperCase() + genderQuery.slice(1).toLowerCase();
+    pageTitle = `${gFormatted}'s Collection`;
+  } else if (categoryQuery) {
+    pageTitle = categoryQuery.charAt(0).toUpperCase() + categoryQuery.slice(1);
+  } else if (styleQuery) {
+    pageTitle = `${styleQuery.charAt(0).toUpperCase() + styleQuery.slice(1).toLowerCase()} Style`;
+  } else if (searchQuery) {
+    pageTitle = `Results for "${searchQuery}"`;
+  }
 
   const startIndex = meta.total > 0 ? (currentPage - 1) * meta.limit + 1 : 0;
   const endIndex = Math.min(currentPage * meta.limit, meta.total);
@@ -94,6 +104,21 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
           <Link href="/" className="hover:text-black dark:hover:text-white transition-colors">
             Home
           </Link>
+          <ChevronRight size={16} className="text-black/40 dark:text-zinc-600" />
+          <Link href="/shop" className="hover:text-black dark:hover:text-white transition-colors">
+            Shop
+          </Link>
+          {genderQuery && (
+            <>
+              <ChevronRight size={16} className="text-black/40 dark:text-zinc-600" />
+              <Link
+                href={`/shop?gender=${genderQuery}`}
+                className="hover:text-black dark:hover:text-white transition-colors capitalize"
+              >
+                {genderQuery}
+              </Link>
+            </>
+          )}
           <ChevronRight size={16} className="text-black/40 dark:text-zinc-600" />
           <span className="text-black dark:text-white font-medium">{pageTitle}</span>
         </nav>
@@ -131,7 +156,7 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
               </Suspense>
             </div>
 
-            {/* Product Cards */}
+            {/* Product Cards Grid */}
             {products.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
                 {products.map((product) => {

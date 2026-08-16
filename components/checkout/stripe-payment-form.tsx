@@ -1,80 +1,101 @@
 // components/checkout/stripe-payment-form.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   PaymentElement,
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js';
-import { Lock, Loader2, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { confirmStripeOrderPayment } from '@/actions/order';
+import { Lock, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 
 interface StripePaymentFormProps {
-  totalAmount: number;
+  orderId: string;
   orderNumber: string;
-  onSuccess: () => void;
+  totalAmount: number;
+  onSuccess?: (orderNumber: string) => void;
 }
 
 export function StripePaymentForm({
-  totalAmount,
+  orderId,
   orderNumber,
+  totalAmount,
   onSuccess,
 }: StripePaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
+  const router = useRouter();
 
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handlePaymentSubmit = async (e?: React.MouseEvent | React.KeyboardEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    // Prevent default form action and stop event bubbling to any parent containers
+    e.preventDefault();
+    e.stopPropagation();
 
     if (!stripe || !elements) {
       return;
     }
 
-    setIsProcessing(true);
+    setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const returnUrl = `${window.location.origin}/order-confirmation?orderNumber=${orderNumber}`;
-
-      const { error } = await stripe.confirmPayment({
+      // 1. Authorize card payment with Stripe Elements SDK
+      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
         elements,
-        confirmParams: {
-          return_url: returnUrl,
-        },
         redirect: 'if_required',
       });
 
-      if (error) {
-        setErrorMessage(error.message || 'Payment processing failed. Please check your card details.');
-        setIsProcessing(false);
+      if (stripeError) {
+        setErrorMessage(stripeError.message || 'Card authorization failed.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (paymentIntent && paymentIntent.status === 'succeeded') {
+        // 2. Finalize atomic inventory deduction and settle payment status
+        const settleResult = await confirmStripeOrderPayment(orderId, paymentIntent.id);
+
+        if (!settleResult.success) {
+          setErrorMessage(settleResult.error || 'Failed to settle order.');
+          setIsLoading(false);
+          return;
+        }
+
+        // 3. Clear cart and trigger redirect
+        if (onSuccess) {
+          onSuccess(orderNumber);
+        } else {
+          router.replace(`/order-confirmation?orderNumber=${orderNumber}`);
+        }
       } else {
-        // Payment succeeded without requiring 3DS redirect
-        onSuccess();
+        setErrorMessage('Payment was not completed. Please check your details and try again.');
+        setIsLoading(false);
       }
     } catch (err) {
-      console.error('[STRIPE_CONFIRMATION_ERROR]:', err);
-      setErrorMessage('An unexpected error occurred while confirming payment.');
-      setIsProcessing(false);
+      console.error('[STRIPE_PAYMENT_SUBMIT_ERROR]:', err);
+      setErrorMessage(
+        err instanceof Error ? err.message : 'An error occurred during payment processing.'
+      );
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="space-y-4 pt-2">
+    <form onSubmit={handleSubmit} className="space-y-4 font-satoshi">
       {errorMessage && (
-        <div className="p-3.5 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 rounded-[12px] flex items-center gap-2.5 text-rose-600 dark:text-rose-400 text-xs font-medium">
-          <AlertCircle size={16} className="shrink-0" />
+        <div className="flex items-center gap-2.5 rounded-[16px] border border-rose-300 bg-rose-50 p-3.5 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
 
-      {/* Stripe Payment Element */}
-      <div className="bg-white dark:bg-zinc-900 p-4 rounded-[16px] border border-black/10 dark:border-zinc-800 shadow-inner">
+      <div className="rounded-[16px] border border-black/10 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <PaymentElement
           options={{
             layout: 'tabs',
@@ -82,29 +103,31 @@ export function StripePaymentForm({
         />
       </div>
 
-      {/* Pay CTA Action */}
-      <button
-        type="button"
-        onClick={handlePaymentSubmit}
-        disabled={!stripe || isProcessing}
-        className="w-full h-[54px] rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[15px] sm:text-[16px] flex items-center justify-center gap-2 hover:bg-black/80 dark:hover:bg-white/80 transition-all active:scale-98 shadow-md disabled:opacity-50 cursor-pointer"
+      <div className="flex items-center justify-between px-1 text-[11px] text-black/50 dark:text-zinc-500">
+        <span className="flex items-center gap-1">
+          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+          256-bit TLS encrypted
+        </span>
+        <span>Stripe Gateway</span>
+      </div>
+
+      <Button
+        type="submit"
+        disabled={!stripe || isLoading}
+        className="h-12 w-full rounded-[62px] bg-black text-sm font-bold text-white hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/85 shadow-md transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer"
       >
-        {isProcessing ? (
+        {isLoading ? (
           <>
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Verifying with Bank...</span>
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            Settling ${totalAmount.toFixed(2)} USD...
           </>
         ) : (
           <>
-            <Lock className="w-4 h-4" />
-            <span>Pay ${totalAmount.toFixed(2)} Securely</span>
+            <Lock className="h-4 w-4 mr-2" />
+            Authorize & Pay ${totalAmount.toFixed(2)} USD
           </>
         )}
-      </button>
-
-      <p className="font-satoshi text-[11px] text-center text-black/40 dark:text-zinc-500">
-        Transactions are encrypted with TLS 1.3 & 256-Bit AES Encryption via Stripe.
-      </p>
-    </div>
+      </Button>
+    </form>
   );
 }
