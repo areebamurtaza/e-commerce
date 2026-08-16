@@ -4,7 +4,7 @@ import { DressStyle, Gender } from '@prisma/client';
 
 export const productImageSchema = z.object({
   id: z.string().optional(),
-  url: z.string().url('Please enter a valid image URL').min(1, 'Image URL is required'),
+  url: z.string().min(1, 'Image URL or data is required'),
   isPrimary: z.boolean(),
 });
 
@@ -13,7 +13,10 @@ export const productVariantSchema = z.object({
   sku: z.string().min(2, 'SKU must be at least 2 characters'),
   size: z.string().min(1, 'Size is required'),
   colorName: z.string().min(1, 'Color name is required'),
-  colorHex: z.string().min(4, 'Color hex is required'),
+  colorHex: z
+    .string()
+    .min(4, 'Color hex is required')
+    .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, 'Must be a valid hex color (e.g. #000000)'),
   priceOffset: z.number(),
   stockQuantity: z.number().int().min(0, 'Stock cannot be negative'),
 });

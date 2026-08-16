@@ -13,6 +13,27 @@ import {
 import { DressStyle, Gender, Prisma } from '@prisma/client';
 import { ALL_TAXONOMY_CATEGORIES } from '@/constants/shop';
 
+// ============================================================================
+// DOMAIN TYPES & INTERFACES
+// ============================================================================
+
+export type ProductWithRelations = Prisma.ProductGetPayload<{
+  include: {
+    category: true;
+    images: true;
+    variants: true;
+  };
+}>;
+
+export type ProductDetailWithRelations = Prisma.ProductGetPayload<{
+  include: {
+    category: true;
+    images: true;
+    variants: true;
+    reviews: true;
+  };
+}>;
+
 export interface GetProductsParams {
   query?: string;
   category?: string;
@@ -27,14 +48,6 @@ export interface GetProductsParams {
   isFeatured?: boolean;
   isNewArrival?: boolean;
 }
-
-export type ProductWithRelations = Prisma.ProductGetPayload<{
-  include: {
-    category: true;
-    images: true;
-    variants: true;
-  };
-}>;
 
 export interface GetProductsResult {
   success: boolean;
@@ -96,6 +109,13 @@ export interface AdminProductsResult {
   error?: string;
 }
 
+export interface ActionResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
+
 function isDynamicServerError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
   return (
@@ -105,6 +125,10 @@ function isDynamicServerError(err: unknown): boolean {
       (err as { message: string }).message.includes('Dynamic server usage'))
   );
 }
+
+// ============================================================================
+// PUBLIC STOREFRONT QUERIES
+// ============================================================================
 
 export async function getProducts(params: GetProductsParams = {}): Promise<GetProductsResult> {
   try {
@@ -233,7 +257,9 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
   }
 }
 
-export async function getProductBySlugOrId(identifier: string) {
+export async function getProductBySlugOrId(
+  identifier: string
+): Promise<ActionResponse<ProductDetailWithRelations>> {
   try {
     const cleanId = identifier.trim();
 
@@ -259,6 +285,10 @@ export async function getProductBySlugOrId(identifier: string) {
     return { success: false, error: 'Failed to load product details.' };
   }
 }
+
+// ============================================================================
+// ADMIN INVENTORY & TAXONOMY QUERIES
+// ============================================================================
 
 export async function getAdminCategories() {
   try {
@@ -410,7 +440,13 @@ export async function getAdminProducts(
   }
 }
 
-export async function createProduct(rawData: ProductFormValues) {
+// ============================================================================
+// ADMIN PRODUCT MUTATIONS (ATOMIC TRANSACTIONS)
+// ============================================================================
+
+export async function createProduct(
+  rawData: ProductFormValues
+): Promise<ActionResponse<ProductWithRelations>> {
   try {
     await verifyAdmin();
 
@@ -455,6 +491,11 @@ export async function createProduct(rawData: ProductFormValues) {
               })),
             },
           },
+          include: {
+            category: true,
+            images: { orderBy: { isPrimary: 'desc' } },
+            variants: { orderBy: { size: 'asc' } },
+          },
         });
       });
 
@@ -462,7 +503,7 @@ export async function createProduct(rawData: ProductFormValues) {
       revalidatePath('/shop');
       revalidatePath('/');
 
-      return { success: true, data: newProduct };
+      return { success: true, data: newProduct, message: 'Product created successfully.' };
     });
   } catch (error) {
     if (isDynamicServerError(error)) throw error;
@@ -474,7 +515,160 @@ export async function createProduct(rawData: ProductFormValues) {
   }
 }
 
-export async function deleteProduct(id: string) {
+export async function updateProduct(
+  productId: string,
+  rawData: ProductFormValues
+): Promise<ActionResponse<ProductWithRelations>> {
+  try {
+    await verifyAdmin();
+
+    const validated = productFormSchema.parse(rawData);
+
+    return await withDbRetry(async () => {
+      const existingProduct = await prisma.product.findUnique({
+        where: { id: productId },
+        include: { variants: true, images: true },
+      });
+
+      if (!existingProduct) {
+        return { success: false, error: `Product with ID ${productId} not found.` };
+      }
+
+      if (validated.slug !== existingProduct.slug) {
+        const slugCollision = await prisma.product.findFirst({
+          where: {
+            slug: validated.slug,
+            NOT: { id: productId },
+          },
+        });
+
+        if (slugCollision) {
+          return {
+            success: false,
+            error: `The URL slug "${validated.slug}" is already used by another product.`,
+          };
+        }
+      }
+
+      const updatedProduct = await prisma.$transaction(async (tx) => {
+        // 1. Update Product Scalar Fields
+        await tx.product.update({
+          where: { id: productId },
+          data: {
+            title: validated.title,
+            slug: validated.slug,
+            description: validated.description,
+            basePrice: validated.basePrice,
+            discountPercentage: validated.discountPercentage,
+            gender: validated.gender as Gender,
+            dressStyle: validated.dressStyle,
+            isFeatured: validated.isFeatured,
+            isNewArrival: validated.isNewArrival,
+            categoryId: validated.categoryId,
+          },
+        });
+
+        // 2. Reconcile Gallery Images
+        await tx.productImage.deleteMany({
+          where: { productId },
+        });
+
+        await tx.productImage.createMany({
+          data: validated.images.map((img) => ({
+            productId,
+            url: img.url,
+            isPrimary: img.isPrimary,
+          })),
+        });
+
+        // 3. Reconcile Variants
+        const incomingVariantIds = validated.variants
+          .map((v) => v.id)
+          .filter((id): id is string => Boolean(id));
+
+        await tx.productVariant.deleteMany({
+          where: {
+            productId,
+            id: { notIn: incomingVariantIds },
+            orderItems: { none: {} },
+          },
+        });
+
+        await tx.productVariant.updateMany({
+          where: {
+            productId,
+            id: { notIn: incomingVariantIds },
+            orderItems: { some: {} },
+          },
+          data: {
+            stockQuantity: 0,
+          },
+        });
+
+        for (const variant of validated.variants) {
+          if (variant.id) {
+            await tx.productVariant.update({
+              where: { id: variant.id },
+              data: {
+                sku: variant.sku,
+                size: variant.size,
+                colorName: variant.colorName,
+                colorHex: variant.colorHex,
+                priceOffset: variant.priceOffset,
+                stockQuantity: variant.stockQuantity,
+              },
+            });
+          } else {
+            await tx.productVariant.create({
+              data: {
+                productId,
+                sku: variant.sku,
+                size: variant.size,
+                colorName: variant.colorName,
+                colorHex: variant.colorHex,
+                priceOffset: variant.priceOffset,
+                stockQuantity: variant.stockQuantity,
+              },
+            });
+          }
+        }
+
+        return await tx.product.findUniqueOrThrow({
+          where: { id: productId },
+          include: {
+            category: true,
+            images: { orderBy: { isPrimary: 'desc' } },
+            variants: { orderBy: { size: 'asc' } },
+          },
+        });
+      });
+
+      revalidatePath('/admin/products');
+      revalidatePath(`/admin/products/${productId}`);
+      revalidatePath(`/admin/products/${productId}/edit`);
+      revalidatePath(`/product/${productId}`);
+      revalidatePath(`/product/${existingProduct.slug}`);
+      revalidatePath(`/product/${validated.slug}`);
+      revalidatePath('/shop');
+      revalidatePath('/');
+
+      return {
+        success: true,
+        data: updatedProduct,
+        message: 'Product updated successfully.',
+      };
+    });
+  } catch (error) {
+    if (isDynamicServerError(error)) throw error;
+    console.error('[ACTIONS_UPDATE_PRODUCT_ERROR]:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update product.',
+    };
+  }
+}
+
+export async function deleteProduct(id: string): Promise<ActionResponse> {
   try {
     await verifyAdmin();
 
@@ -486,7 +680,8 @@ export async function deleteProduct(id: string) {
       if (orderItemCount > 0) {
         return {
           success: false,
-          error: 'Cannot delete this product because it is linked to existing customer orders.',
+          error:
+            'Cannot delete this product because it is linked to existing customer orders. Set variant stock to 0 instead.',
         };
       }
 

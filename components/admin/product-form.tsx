@@ -13,7 +13,7 @@ import {
   FieldErrors,
 } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createProduct } from '@/actions/product';
+import { createProduct, updateProduct, ProductWithRelations } from '@/actions/product';
 import { productFormSchema, ProductFormValues } from '@/schemas/product';
 import { DressStyle, Gender } from '@prisma/client';
 import { DEPARTMENT_TAXONOMY } from '@/constants/shop';
@@ -29,6 +29,8 @@ import {
   Sparkles,
   UploadCloud,
   FileImage,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 
 interface CategoryOption {
@@ -39,6 +41,7 @@ interface CategoryOption {
 
 interface ProductFormProps {
   categories: CategoryOption[];
+  initialData?: ProductWithRelations | null;
 }
 
 const AVAILABLE_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'] as const;
@@ -57,26 +60,73 @@ const DRESS_STYLES: DressStyle[] = [
   DressStyle.GYM,
 ];
 
-export function ProductForm({ categories }: ProductFormProps) {
+export function ProductForm({ categories, initialData }: ProductFormProps) {
   const router = useRouter();
+  const isEditMode = Boolean(initialData?.id);
+
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isDraft, setIsDraft] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const form = useForm<ProductFormValues>({
-    resolver: zodResolver(productFormSchema),
-    defaultValues: {
+  // Derive initial values from initialData if editing
+  const defaultFormValues: ProductFormValues = useMemo(() => {
+    if (initialData) {
+      return {
+        title: initialData.title,
+        slug: initialData.slug,
+        description: initialData.description,
+        basePrice: initialData.basePrice,
+        discountPercentage: initialData.discountPercentage || 0,
+        gender: initialData.gender,
+        categoryId: initialData.categoryId,
+        dressStyle: initialData.dressStyle,
+        isFeatured: initialData.isFeatured,
+        isNewArrival: initialData.isNewArrival,
+        images:
+          initialData.images.length > 0
+            ? initialData.images.map((img) => ({
+                id: img.id,
+                url: img.url,
+                isPrimary: img.isPrimary,
+              }))
+            : [{ url: '/images/hero1.png', isPrimary: true }],
+        variants:
+          initialData.variants.length > 0
+            ? initialData.variants.map((v) => ({
+                id: v.id,
+                sku: v.sku,
+                size: v.size,
+                colorName: v.colorName,
+                colorHex: v.colorHex,
+                priceOffset: v.priceOffset,
+                stockQuantity: v.stockQuantity,
+              }))
+            : [
+                {
+                  sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}-M-BLK`,
+                  size: 'M',
+                  colorName: 'Black',
+                  colorHex: '#000000',
+                  priceOffset: 0,
+                  stockQuantity: 25,
+                },
+              ],
+      };
+    }
+
+    return {
       title: '',
       slug: '',
       description: '',
       basePrice: 120.0,
       discountPercentage: 0,
       gender: Gender.MEN,
-      categoryId: '',
+      categoryId: categories[0]?.id || '',
       dressStyle: DressStyle.CASUAL,
       isFeatured: false,
       isNewArrival: true,
@@ -91,7 +141,12 @@ export function ProductForm({ categories }: ProductFormProps) {
           stockQuantity: 25,
         },
       ],
-    },
+    };
+  }, [initialData, categories]);
+
+  const form = useForm<ProductFormValues>({
+    resolver: zodResolver(productFormSchema),
+    defaultValues: defaultFormValues,
   });
 
   const {
@@ -100,8 +155,14 @@ export function ProductForm({ categories }: ProductFormProps) {
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors },
   } = form;
+
+  // Reset form when initialData changes
+  useEffect(() => {
+    reset(defaultFormValues);
+  }, [defaultFormValues, reset]);
 
   const selectedGender = (watch('gender') || Gender.MEN) as Gender;
   const currentCategoryId = watch('categoryId');
@@ -128,15 +189,15 @@ export function ProductForm({ categories }: ProductFormProps) {
     return matched.length > 0 ? matched : categories;
   }, [categories, selectedGender]);
 
-  // Synchronize categoryId when department changes
+  // Synchronize categoryId when department changes in create mode
   useEffect(() => {
-    if (availableCategories.length > 0) {
+    if (!isEditMode && availableCategories.length > 0) {
       const isCurrentValid = availableCategories.some((c) => c.id === currentCategoryId);
       if (!isCurrentValid && availableCategories[0]) {
         setValue('categoryId', availableCategories[0].id, { shouldValidate: true });
       }
     }
-  }, [availableCategories, currentCategoryId, setValue]);
+  }, [availableCategories, currentCategoryId, setValue, isEditMode]);
 
   const {
     fields: imageFields,
@@ -213,6 +274,7 @@ export function ProductForm({ categories }: ProductFormProps) {
 
   const onSubmit: SubmitHandler<ProductFormValues> = (data: ProductFormValues) => {
     setServerError(null);
+    setSuccessMessage(null);
     setValidationErrors([]);
 
     const payload: ProductFormValues = {
@@ -222,12 +284,22 @@ export function ProductForm({ categories }: ProductFormProps) {
     };
 
     startTransition(async () => {
-      const response = await createProduct(payload);
+      const response = isEditMode && initialData
+        ? await updateProduct(initialData.id, payload)
+        : await createProduct(payload);
+
       if (!response.success) {
-        setServerError(response.error || 'Failed to create product.');
+        setServerError(response.error || 'Failed to save product changes.');
       } else {
-        router.push('/admin/products');
-        router.refresh();
+        setSuccessMessage(
+          isEditMode
+            ? 'Product updated successfully! Redirecting...'
+            : 'Product created successfully! Redirecting...'
+        );
+        setTimeout(() => {
+          router.push('/admin/products');
+          router.refresh();
+        }, 800);
       }
     });
   };
@@ -311,10 +383,12 @@ export function ProductForm({ categories }: ProductFormProps) {
           </Button>
           <div>
             <h1 className="text-2xl font-bold font-integral uppercase tracking-tight text-black dark:text-white">
-              Add New Product
+              {isEditMode ? 'Edit Product' : 'Add New Product'}
             </h1>
             <p className="text-xs text-black/60 dark:text-zinc-400">
-              Configure department hierarchy, categories, multi-variant matrices, and gallery media.
+              {isEditMode
+                ? `Update prices, discounts, stock levels, and media for "${initialData?.title}".`
+                : 'Configure department hierarchy, categories, multi-variant matrices, and gallery media.'}
             </p>
           </div>
         </div>
@@ -325,28 +399,45 @@ export function ProductForm({ categories }: ProductFormProps) {
             variant="outline"
             size="sm"
             onClick={() => router.push('/admin/products')}
-            className="h-8.5 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white px-5"
+            className="h-8.5 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white px-5 cursor-pointer"
           >
-            Discard
+            Cancel
           </Button>
           <Button
             type="submit"
             size="sm"
             disabled={isPending}
             onClick={() => setIsDraft(false)}
-            className="h-8.5 bg-black dark:bg-white text-white dark:text-black hover:bg-black/80 dark:hover:bg-white/80 rounded-[62px] text-xs font-semibold px-6"
+            className="h-8.5 bg-black dark:bg-white text-white dark:text-black hover:bg-black/80 dark:hover:bg-white/80 rounded-[62px] text-xs font-semibold px-6 cursor-pointer shadow-xs"
           >
-            {isPending ? 'Publishing...' : 'Publish Product'}
+            {isPending ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {isEditMode ? 'Saving Changes...' : 'Publishing...'}
+              </span>
+            ) : isEditMode ? (
+              'Save Changes'
+            ) : (
+              'Publish Product'
+            )}
           </Button>
         </div>
       </div>
+
+      {/* Success Notification Banner */}
+      {successMessage && (
+        <div className="p-4 rounded-xl border border-emerald-300 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 flex items-center gap-3 text-xs font-medium animate-in fade-in">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span>{successMessage}</span>
+        </div>
+      )}
 
       {/* Validation Error Banner */}
       {validationErrors.length > 0 && (
         <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 space-y-1.5 text-xs">
           <div className="flex items-center gap-2 font-bold text-sm">
             <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
-            Please correct the following before publishing:
+            Please correct the following before saving:
           </div>
           <ul className="list-disc pl-5 space-y-0.5">
             {validationErrors.map((err, i) => (
@@ -416,7 +507,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                 <textarea
                   rows={4}
                   placeholder="Describe material compositions, fabric weight, cut, model sizing, and care details..."
-                  className="w-full rounded-[16px] bg-[#F0F0F0] dark:bg-black border-none p-3 text-xs text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none"
+                  className="w-full rounded-[16px] bg-[#F0F0F0] dark:bg-black border-none p-3 text-xs text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none resize-none"
                   {...register('description')}
                 />
                 {errors.description && (
@@ -434,7 +525,7 @@ export function ProductForm({ categories }: ProductFormProps) {
               <div>
                 <h3 className="font-bold text-base text-black dark:text-white">Product Gallery</h3>
                 <p className="text-xs text-black/60 dark:text-zinc-400">
-                  Upload photos directly from your computer or paste image URLs.
+                  Upload photos directly from your computer or edit image URLs.
                 </p>
               </div>
 
@@ -452,7 +543,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                className="h-8 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800 gap-1.5"
+                className="h-8 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800 gap-1.5 cursor-pointer"
               >
                 <UploadCloud className="h-3.5 w-3.5" /> Upload from Computer
               </Button>
@@ -474,7 +565,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                 Drag and drop your photos here, or <span className="underline">browse files</span>
               </p>
               <p className="text-[11px] text-black/40 dark:text-zinc-500 mt-0.5">
-                Supports PNG, JPG, or WEBP up to 5MB
+                Supports PNG, JPG, or WEBP
               </p>
             </div>
 
@@ -530,7 +621,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                         variant="ghost"
                         size="icon"
                         onClick={() => removeImage(idx)}
-                        className="h-8 w-8 text-rose-500 hover:text-rose-700 shrink-0"
+                        className="h-8 w-8 text-rose-500 hover:text-rose-700 shrink-0 cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -547,7 +638,7 @@ export function ProductForm({ categories }: ProductFormProps) {
               <div>
                 <h3 className="font-bold text-base text-black dark:text-white">Product Variants</h3>
                 <p className="text-xs text-black/60 dark:text-zinc-400">
-                  Size choices, color variations, SKU tags, and stock counts.
+                  Update inventory counts, price offsets, colorways, and SKUs.
                 </p>
               </div>
               <Button
@@ -555,7 +646,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                 variant="outline"
                 size="sm"
                 onClick={handleAddVariantRow}
-                className="h-8 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800"
+                className="h-8 text-xs font-semibold rounded-[62px] border-black/10 dark:border-zinc-800 cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Variant
               </Button>
@@ -655,7 +746,7 @@ export function ProductForm({ categories }: ProductFormProps) {
                           variant="ghost"
                           size="sm"
                           onClick={() => removeVariant(idx)}
-                          className="h-8 text-xs text-rose-500 hover:text-rose-700 gap-1"
+                          className="h-8 text-xs text-rose-500 hover:text-rose-700 gap-1 cursor-pointer"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Remove
                         </Button>
@@ -709,7 +800,6 @@ export function ProductForm({ categories }: ProductFormProps) {
           <Card className="border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-[20px] shadow-sm p-6 space-y-4">
             <h3 className="font-bold text-base text-black dark:text-white">Classification</h3>
             <div className="space-y-3">
-              {/* Target Department */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-black dark:text-white">
                   Target Department
@@ -729,7 +819,6 @@ export function ProductForm({ categories }: ProductFormProps) {
                 )}
               </div>
 
-              {/* Subcategory */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-black dark:text-white">
@@ -754,7 +843,6 @@ export function ProductForm({ categories }: ProductFormProps) {
                 )}
               </div>
 
-              {/* Dress Style */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-black dark:text-white">Dress Style</label>
                 <select
