@@ -47,12 +47,28 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
       return session.redirectToSignIn({ returnBackUrl: req.url });
     }
 
-    // Extract role from Clerk Public Metadata session claims
-    const userRole = (session.sessionClaims?.metadata as { role?: string } | undefined)?.role ||
+    // Extract role from Clerk Public Metadata session claims if present
+    const userRole =
+      (session.sessionClaims?.metadata as { role?: string } | undefined)?.role ||
       (session.sessionClaims?.publicMetadata as { role?: string } | undefined)?.role;
 
-    if (userRole !== 'ADMIN') {
-      // Redirect unauthorized customers to root homepage
+    const adminEmails = (process.env.ADMIN_EMAILS || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+
+    const userEmail = (
+      (session.sessionClaims?.email as string | undefined) ||
+      (session.sessionClaims?.email_address as string | undefined) ||
+      (session.sessionClaims?.primary_email as string | undefined) ||
+      ''
+    ).toLowerCase();
+
+    const isWhitelisted =
+      adminEmails.length === 0 || (userEmail.length > 0 && adminEmails.includes(userEmail));
+
+    // If user is explicitly assigned a non-admin role and not whitelisted, redirect
+    if (userRole && userRole !== 'ADMIN' && !isWhitelisted) {
       const url = req.nextUrl.clone();
       url.pathname = '/';
       return NextResponse.redirect(url);
