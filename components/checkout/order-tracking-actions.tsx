@@ -52,7 +52,7 @@ export function OrderTrackingActions({ orderNumber }: OrderTrackingActionsProps)
         className="h-8 rounded-[62px] border-black/10 dark:border-zinc-800 text-xs font-semibold gap-1.5 cursor-pointer bg-white dark:bg-zinc-900"
       >
         <Printer size={13} />
-        <span>Print Receipt</span>
+        <span>Print Invoice</span>
       </Button>
     </div>
   );

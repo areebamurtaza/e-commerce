@@ -2,7 +2,7 @@
 import type { Metadata, Viewport } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ThemeProvider } from '@/components/theme-provider';
-import { integralCF, satoshi } from '@/lib/fonts';
+import { integralCF, satoshi, adminFont } from '@/lib/fonts';
 import { cn } from '@/lib/utils';
 import '@/app/globals.css';
 
@@ -50,7 +50,8 @@ export default function RootLayout({ children }: Readonly<RootLayoutProps>) {
         className={cn(
           'scroll-smooth antialiased',
           integralCF.variable,
-          satoshi.variable
+          satoshi.variable,
+          adminFont.variable
         )}
         suppressHydrationWarning
       >

@@ -34,11 +34,14 @@ export async function withDbRetry<T>(
       error instanceof Error &&
       (error.message.includes("Can't reach database server") ||
         error.message.includes('connection timed out') ||
-        error.message.includes('Connection closed'));
+        error.message.includes('Connection closed') ||
+        error.message.includes('Transaction already closed') ||
+        error.message.includes('expired transaction') ||
+        error.message.includes('timed out'));
 
     if (isConnectionError) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return withDbRetry(operation, retries - 1, delayMs * 2);
+      return withDbRetry(operation, retries - 1, delayMs * 1.5);
     }
 
     throw error;

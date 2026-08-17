@@ -17,7 +17,7 @@ if (!resendApiKey && process.env.NODE_ENV === 'production') {
   );
 }
 
-// Safely instantiate Resend client with dummy fallback to prevent initialization crashes
+// Safely instantiate Resend client with fallback
 export const resend = new Resend(resendApiKey || 're_dummy_fallback_key');
 
 export interface OrderItemEmailPayload {
@@ -27,12 +27,14 @@ export interface OrderItemEmailPayload {
   quantity: number;
   unitPrice: number;
   total?: number;
+  image?: string;
 }
 
 export interface SendOrderConfirmationParams {
   toEmail: string;
   customerName: string;
   orderNumber: string;
+  orderId?: string;
   totalAmount: number;
   shippingAddress: string;
   items: OrderItemEmailPayload[];
@@ -49,20 +51,49 @@ export interface EmailResponse {
 }
 
 /**
- * Generates an accessible, responsive HTML email template for order receipts
+ * Normalizes image URLs to absolute HTTPS URLs for email clients
+ */
+function resolveEmailImageUrl(url?: string): string {
+  const appBaseUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://shopco-byareeba.vercel.app');
+
+  if (!url) {
+    return `${appBaseUrl}/images/pd1.png`;
+  }
+
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return `${appBaseUrl}${cleanPath}`;
+}
+
+/**
+ * Generates an accessible, responsive, premium HTML email template for order receipts
  */
 function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): string {
   const {
     customerName,
     orderNumber,
+    orderId,
     totalAmount,
     shippingAddress,
     items,
     subtotal,
     shippingFee,
     discount,
-    paymentMethod = 'Credit / Debit Card',
+    paymentMethod = 'Credit / Debit Card (Stripe)',
   } = params;
+
+  const appBaseUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://shopco-byareeba.vercel.app');
+
+  const trackOrderUrl = orderId
+    ? `${appBaseUrl}/orders/${orderId}`
+    : `${appBaseUrl}/order-confirmation?orderNumber=${orderNumber}`;
 
   const calculatedSubtotal =
     subtotal !== undefined
@@ -81,26 +112,38 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
         item.total !== undefined
           ? item.total
           : Number((item.unitPrice * item.quantity).toFixed(2));
+      const imageUrl = resolveEmailImageUrl(item.image);
 
       return `
         <tr>
-          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top;">
-            <div style="font-size: 14px; font-weight: 700; color: #000000; margin-bottom: 4px; line-height: 1.3;">
+          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; width: 64px;">
+            <div style="width: 60px; height: 60px; border-radius: 10px; overflow: hidden; background-color: #f4f4f5; border: 1px solid #e4e4e7; text-align: center;">
+              <img 
+                src="${imageUrl}" 
+                alt="${item.title}" 
+                width="60" 
+                height="60" 
+                style="width: 60px; height: 60px; object-fit: cover; display: block; border-radius: 10px;"
+              />
+            </div>
+          </td>
+          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle;">
+            <div style="font-size: 14px; font-weight: 700; color: #111827; margin-bottom: 4px; line-height: 1.3;">
               ${item.title}
             </div>
-            <div style="font-size: 12px; color: #666666; font-weight: 500;">
-              Size: <span style="color: #111111; font-weight: 600;">${item.size}</span>
+            <div style="font-size: 12px; color: #6b7280; font-weight: 500;">
+              Size: <span style="color: #111827; font-weight: 600;">${item.size}</span>
               &nbsp;&bull;&nbsp;
-              Color: <span style="color: #111111; font-weight: 600;">${item.color}</span>
+              Color: <span style="color: #111827; font-weight: 600;">${item.color}</span>
             </div>
           </td>
-          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; text-align: center; vertical-align: top; font-size: 14px; font-weight: 600; color: #111111;">
+          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; text-align: center; vertical-align: middle; font-size: 14px; font-weight: 600; color: #111827;">
             ${item.quantity}
           </td>
-          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; text-align: right; vertical-align: top; font-size: 14px; color: #666666;">
+          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; text-align: right; vertical-align: middle; font-size: 13px; color: #6b7280;">
             $${item.unitPrice.toFixed(2)}
           </td>
-          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; text-align: right; vertical-align: top; font-size: 14px; font-weight: 700; color: #000000;">
+          <td style="padding: 16px 12px; border-bottom: 1px solid #f0f0f0; text-align: right; vertical-align: middle; font-size: 14px; font-weight: 700; color: #111827;">
             $${lineTotal.toFixed(2)}
           </td>
         </tr>
@@ -114,37 +157,40 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Order Confirmation - ${orderNumber}</title>
+        <title>Order Confirmation #${orderNumber}</title>
       </head>
-      <body style="margin: 0; padding: 0; background-color: #f6f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #111111; -webkit-font-smoothing: antialiased;">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f6f6f8; padding: 40px 16px;">
+      <body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #18181b; -webkit-font-smoothing: antialiased;">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f5; padding: 36px 12px;">
           <tr>
             <td align="center">
               <!-- Main Card Container -->
-              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e5e5ea; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 620px; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e4e4e7; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
                 
                 <!-- Brand Header -->
                 <tr>
                   <td style="background-color: #000000; padding: 32px 40px; text-align: center;">
-                    <h1 style="color: #ffffff; font-size: 26px; font-weight: 900; letter-spacing: 1px; margin: 0; text-transform: uppercase;">
+                    <h1 style="color: #ffffff; font-size: 26px; font-weight: 900; letter-spacing: 1.5px; margin: 0; text-transform: uppercase;">
                       SHOP.CO
                     </h1>
+                    <p style="color: #a1a1aa; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin: 6px 0 0 0;">
+                      Order Receipt & Fulfillment Confirmation
+                    </p>
                   </td>
                 </tr>
 
                 <!-- Status Banner -->
                 <tr>
                   <td style="padding: 32px 40px 20px 40px; text-align: center;">
-                    <div style="display: inline-block; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 9999px; padding: 6px 16px; margin-bottom: 16px;">
+                    <div style="display: inline-block; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 9999px; padding: 6px 18px; margin-bottom: 16px;">
                       <span style="font-size: 13px; font-weight: 700; color: #065f46; letter-spacing: 0.5px;">
                         &#10003; ORDER CONFIRMED
                       </span>
                     </div>
-                    <h2 style="font-size: 22px; font-weight: 800; color: #000000; margin: 0 0 8px 0; line-height: 1.25;">
-                      Thank you for your order, ${customerName}!
+                    <h2 style="font-size: 22px; font-weight: 800; color: #18181b; margin: 0 0 8px 0; line-height: 1.25;">
+                      Thank you for your purchase, ${customerName}!
                     </h2>
-                    <p style="font-size: 14px; line-height: 1.5; color: #666666; margin: 0;">
-                      We have received your order and are currently processing it for fulfillment. Below is a detailed summary of your purchase.
+                    <p style="font-size: 14px; line-height: 1.5; color: #52525b; margin: 0;">
+                      Your order has been verified and passed to our fulfillment queue. You can track preparation and shipping progress below.
                     </p>
                   </td>
                 </tr>
@@ -152,39 +198,39 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
                 <!-- Order Details Card -->
                 <tr>
                   <td style="padding: 0 40px 24px 40px;">
-                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f9f9fb; border: 1px solid #eeeeee; border-radius: 14px; padding: 20px;">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 16px; padding: 20px;">
                       <tr>
-                        <td width="50%" style="padding: 6px 0; vertical-align: top;">
-                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888888; font-weight: 700; margin-bottom: 2px;">
+                        <td width="50%" style="padding: 6px 12px 6px 0; vertical-align: top;">
+                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; font-weight: 700; margin-bottom: 2px;">
                             Order Reference
                           </div>
                           <div style="font-size: 14px; font-weight: 700; font-family: monospace; color: #000000;">
                             ${orderNumber}
                           </div>
                         </td>
-                        <td width="50%" style="padding: 6px 0; vertical-align: top;">
-                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888888; font-weight: 700; margin-bottom: 2px;">
+                        <td width="50%" style="padding: 6px 0 6px 12px; vertical-align: top;">
+                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; font-weight: 700; margin-bottom: 2px;">
                             Date Placed
                           </div>
-                          <div style="font-size: 13px; font-weight: 600; color: #111111;">
+                          <div style="font-size: 13px; font-weight: 600; color: #18181b;">
                             ${formattedDate}
                           </div>
                         </td>
                       </tr>
                       <tr>
-                        <td width="50%" style="padding: 10px 0 0 0; vertical-align: top;">
-                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888888; font-weight: 700; margin-bottom: 2px;">
+                        <td width="50%" style="padding: 12px 12px 0 0; vertical-align: top; border-top: 1px solid #f0f0f0;">
+                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; font-weight: 700; margin-bottom: 2px;">
                             Payment Method
                           </div>
-                          <div style="font-size: 13px; font-weight: 600; color: #111111;">
+                          <div style="font-size: 13px; font-weight: 600; color: #18181b;">
                             ${paymentMethod}
                           </div>
                         </td>
-                        <td width="50%" style="padding: 10px 0 0 0; vertical-align: top;">
-                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #888888; font-weight: 700; margin-bottom: 2px;">
+                        <td width="50%" style="padding: 12px 0 0 12px; vertical-align: top; border-top: 1px solid #f0f0f0;">
+                          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; font-weight: 700; margin-bottom: 2px;">
                             Shipping Destination
                           </div>
-                          <div style="font-size: 13px; line-height: 1.4; color: #333333;">
+                          <div style="font-size: 13px; line-height: 1.4; color: #27272a;">
                             ${shippingAddress}
                           </div>
                         </td>
@@ -196,13 +242,13 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
                 <!-- Itemized Summary Section -->
                 <tr>
                   <td style="padding: 0 40px 24px 40px;">
-                    <h3 style="font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #000000; margin: 0 0 12px 0;">
+                    <h3 style="font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #000000; margin: 0 0 12px 0;">
                       Purchased Items
                     </h3>
                     <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
                       <thead>
                         <tr style="background-color: #000000;">
-                          <th style="padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #ffffff; border-radius: 8px 0 0 8px;">
+                          <th colspan="2" style="padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #ffffff; border-radius: 8px 0 0 8px;">
                             Item
                           </th>
                           <th style="padding: 10px 12px; text-align: center; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #ffffff;">
@@ -225,11 +271,11 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
 
                 <!-- Financial Breakdown -->
                 <tr>
-                  <td style="padding: 0 40px 32px 40px;">
+                  <td style="padding: 0 40px 24px 40px;">
                     <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
                       <tr>
-                        <td style="padding: 4px 0; font-size: 13px; color: #666666;">Subtotal</td>
-                        <td style="padding: 4px 0; font-size: 13px; font-weight: 600; text-align: right; color: #111111;">
+                        <td style="padding: 4px 0; font-size: 13px; color: #71717a;">Subtotal</td>
+                        <td style="padding: 4px 0; font-size: 13px; font-weight: 600; text-align: right; color: #18181b;">
                           $${calculatedSubtotal.toFixed(2)}
                         </td>
                       </tr>
@@ -237,9 +283,9 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
                         shippingFee !== undefined
                           ? `
                         <tr>
-                          <td style="padding: 4px 0; font-size: 13px; color: #666666;">Delivery Fee</td>
+                          <td style="padding: 4px 0; font-size: 13px; color: #71717a;">Delivery Fee</td>
                           <td style="padding: 4px 0; font-size: 13px; font-weight: 600; text-align: right; color: ${
-                            shippingFee === 0 ? '#059669' : '#111111'
+                            shippingFee === 0 ? '#059669' : '#18181b'
                           };">
                             ${shippingFee === 0 ? 'FREE' : `$${shippingFee.toFixed(2)}`}
                           </td>
@@ -251,8 +297,8 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
                         discount !== undefined && discount > 0
                           ? `
                         <tr>
-                          <td style="padding: 4px 0; font-size: 13px; color: #059669; font-weight: 500;">Promotional Discount</td>
-                          <td style="padding: 4px 0; font-size: 13px; font-weight: 600; text-align: right; color: #059669;">
+                          <td style="padding: 4px 0; font-size: 13px; color: #059669; font-weight: 600;">Promotional Discount</td>
+                          <td style="padding: 4px 0; font-size: 13px; font-weight: 700; text-align: right; color: #059669;">
                             -$${discount.toFixed(2)}
                           </td>
                         </tr>
@@ -261,7 +307,7 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
                       }
                       <tr>
                         <td style="padding: 12px 0 0 0; border-top: 2px solid #000000; font-size: 16px; font-weight: 800; color: #000000;">
-                          Total
+                          Total Paid
                         </td>
                         <td style="padding: 12px 0 0 0; border-top: 2px solid #000000; font-size: 18px; font-weight: 900; text-align: right; color: #000000;">
                           $${totalAmount.toFixed(2)} USD
@@ -271,14 +317,26 @@ function renderOrderConfirmationHtml(params: SendOrderConfirmationParams): strin
                   </td>
                 </tr>
 
+                <!-- Track Order CTA Button -->
+                <tr>
+                  <td style="padding: 0 40px 32px 40px; text-align: center;">
+                    <a 
+                      href="${trackOrderUrl}" 
+                      style="display: inline-block; background-color: #000000; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 14px 32px; border-radius: 9999px; letter-spacing: 0.5px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);"
+                    >
+                      Track Order & View Invoice &rarr;
+                    </a>
+                  </td>
+                </tr>
+
                 <!-- Footer -->
                 <tr>
                   <td style="background-color: #fafafa; border-top: 1px solid #eeeeee; padding: 24px 40px; text-align: center;">
-                    <p style="font-size: 12px; line-height: 1.6; color: #888888; margin: 0 0 8px 0;">
-                      Questions about your order? Reach out to our support team at <a href="mailto:support@shop.co" style="color: #000000; text-decoration: underline; font-weight: 600;">support@shop.co</a>.
+                    <p style="font-size: 12px; line-height: 1.6; color: #71717a; margin: 0 0 8px 0;">
+                      Questions or modifications regarding your order? Contact our concierge team at <a href="mailto:support@shop.co" style="color: #000000; text-decoration: underline; font-weight: 600;">support@shop.co</a>.
                     </p>
-                    <p style="font-size: 11px; color: #aaaaaa; margin: 0;">
-                      &copy; ${new Date().getFullYear()} SHOP.CO. All rights reserved.
+                    <p style="font-size: 11px; color: #a1a1aa; margin: 0;">
+                      &copy; ${new Date().getFullYear()} SHOP.CO. All rights reserved. High-End Fashion & Apparel.
                     </p>
                   </td>
                 </tr>

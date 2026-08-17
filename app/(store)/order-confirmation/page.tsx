@@ -2,9 +2,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Check, Package, ArrowRight, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { Check, Package, ArrowRight, ShoppingBag, ShieldCheck, Printer } from 'lucide-react';
 import { getOrderById } from '@/actions/order';
 import { Button } from '@/components/ui/button';
+import { OrderTrackingActions } from '@/components/checkout/order-tracking-actions';
+import { PrintableInvoice } from '@/components/invoice/printable-invoice';
 
 export const metadata: Metadata = {
   title: 'Order Confirmed | SHOP.CO',
@@ -108,16 +110,19 @@ export default async function OrderConfirmationPage({
         {/* Primary Call-to-Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-2">
           {order ? (
-            <Button
-              asChild
-              variant="outline"
-              className="w-full sm:w-auto h-[52px] px-8 rounded-[62px] border-black/20 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-black dark:text-white font-satoshi font-bold text-sm flex items-center justify-center gap-2 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-all active:scale-95 cursor-pointer"
-            >
-              <Link href={`/orders/${order.id}`}>
-                <Package size={18} />
-                <span>Track Order Details</span>
-              </Link>
-            </Button>
+            <>
+              <Button
+                asChild
+                variant="outline"
+                className="w-full sm:w-auto h-[52px] px-7 rounded-[62px] border-black/20 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-black dark:text-white font-satoshi font-bold text-sm flex items-center justify-center gap-2 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-all active:scale-95 cursor-pointer"
+              >
+                <Link href={`/orders/${order.id}`}>
+                  <Package size={18} />
+                  <span>Track Order</span>
+                </Link>
+              </Button>
+              <OrderTrackingActions orderNumber={order.orderNumber} />
+            </>
           ) : (
             <Button
               asChild
@@ -149,6 +154,9 @@ export default async function OrderConfirmationPage({
           <span>A confirmation receipt has been sent to your email.</span>
         </div>
       </div>
+
+      {/* Dedicated Printable Commercial Tax Invoice (Only visible when printing) */}
+      {order && <PrintableInvoice order={order} />}
     </div>
   );
 }

@@ -1,5 +1,13 @@
 // lib/fonts.ts
 import localFont from 'next/font/local';
+import { Plus_Jakarta_Sans } from 'next/font/google';
+
+export const adminFont = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-admin',
+  display: 'swap',
+});
 
 export const integralCF = localFont({
   src: [

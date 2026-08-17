@@ -152,11 +152,11 @@ export function OrdersListView({
   ];
 
   return (
-    <div className="space-y-6 font-satoshi text-black dark:text-white transition-colors">
+    <div className="space-y-6 font-admin text-black dark:text-white transition-colors">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold font-integral uppercase tracking-tight text-black dark:text-white">
+          <h1 className="text-2xl font-extrabold font-admin uppercase tracking-tight text-black dark:text-white">
             ORDERS LIST
           </h1>
           <p className="text-xs text-black/60 dark:text-zinc-400 mt-1">

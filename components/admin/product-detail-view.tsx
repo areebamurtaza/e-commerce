@@ -8,6 +8,11 @@ import { deleteProduct, ProductWithRelations } from '@/actions/product';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
+  ProductDeleteDialog,
+  ProductToDelete,
+} from '@/components/admin/product-delete-dialog';
+import { AdminToast, AdminToastState } from '@/components/admin/admin-toast';
+import {
   Trash2,
   Star,
   DollarSign,
@@ -40,21 +45,20 @@ export function ProductDetailView({ product }: ProductDetailViewProps) {
     : ['/images/hero1.png'];
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [toastState, setToastState] = useState<AdminToastState | null>(null);
 
   const totalStock = product.variants.reduce((acc, v) => acc + v.stockQuantity, 0);
 
-  const handleDelete = () => {
-    if (!window.confirm('Are you sure you want to delete this product?')) return;
-
-    startTransition(async () => {
-      const res = await deleteProduct(product.id);
-      if (!res.success) {
-        alert(res.error || 'Failed to delete product.');
-      } else {
-        router.push('/admin/products');
-        router.refresh();
-      }
+  const handleDeleteSuccess = (msg: string) => {
+    setToastState({
+      type: 'success',
+      message: msg,
     });
+    setTimeout(() => {
+      router.push('/admin/products');
+      router.refresh();
+    }, 1200);
   };
 
   return (
@@ -66,7 +70,7 @@ export function ProductDetailView({ product }: ProductDetailViewProps) {
             variant="outline"
             size="icon"
             onClick={() => router.push('/admin/products')}
-            className="h-8 w-8 rounded-lg border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white"
+            className="h-8 w-8 rounded-lg border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -84,11 +88,11 @@ export function ProductDetailView({ product }: ProductDetailViewProps) {
 
         <div className="flex items-center gap-2">
           <Button
-            onClick={handleDelete}
+            onClick={() => setIsDeleteDialogOpen(true)}
             size="sm"
             disabled={isPending}
             variant="outline"
-            className="h-8.5 gap-1.5 text-xs font-semibold rounded-[62px] border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 px-5"
+            className="h-8.5 gap-1.5 text-xs font-semibold rounded-[62px] border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 px-5 cursor-pointer"
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete Product
           </Button>
@@ -284,6 +288,26 @@ export function ProductDetailView({ product }: ProductDetailViewProps) {
           </div>
         )}
       </Card>
+
+      {/* On-Screen Product Deletion & Archive Modal */}
+      <ProductDeleteDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        product={{
+          id: product.id,
+          name: product.title,
+          sku: product.variants[0]?.sku,
+          imageUrl: images[0],
+          price: product.basePrice,
+        }}
+        onDeleted={handleDeleteSuccess}
+      />
+
+      {/* On-Screen Toast Notifications */}
+      <AdminToast
+        toast={toastState}
+        onDismiss={() => setToastState(null)}
+      />
     </div>
   );
 }

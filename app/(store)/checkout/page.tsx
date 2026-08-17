@@ -38,6 +38,8 @@ export default function CheckoutPage() {
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [promoInput, setPromoInput] = useState<string>('');
+  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -47,10 +49,14 @@ export default function CheckoutPage() {
 
   const {
     items,
+    promoCode,
+    discountPercentage,
+    isPromoApplied,
     getSubtotal,
     getDiscountAmount,
     deliveryFee,
     applyPromoCode,
+    removePromoCode,
     clearCart,
   } = useCartStore();
 
@@ -101,11 +107,34 @@ export default function CheckoutPage() {
 
   const handleApplyPromo = (e: FormEvent) => {
     e.preventDefault();
-    if (promoInput.trim()) {
-      const success = applyPromoCode(promoInput);
-      if (!success) {
-        alert('Invalid promo code. Try "SHOP20" for 20% off!');
+    setPromoError(null);
+    setPromoMessage(null);
+
+    const codeToApply = promoInput.trim();
+    if (!codeToApply) {
+      setPromoError('Please enter a promo code.');
+      return;
+    }
+
+    const success = applyPromoCode(codeToApply);
+    if (success) {
+      setPromoMessage(`Promo code "${codeToApply.toUpperCase()}" applied successfully!`);
+      setPromoInput('');
+      // If payment intent was already loaded, reset it so new price is charged
+      if (clientSecret) {
+        setClientSecret(null);
       }
+    } else {
+      setPromoError('Invalid promo code. Try "SHOP20" or "SAVE30"!');
+    }
+  };
+
+  const handleRemovePromo = () => {
+    removePromoCode();
+    setPromoMessage(null);
+    setPromoError(null);
+    if (clientSecret) {
+      setClientSecret(null);
     }
   };
 
@@ -164,6 +193,7 @@ export default function CheckoutPage() {
           data.apartment ? data.apartment + ', ' : ''
         }${data.city}, ${data.state} ${data.postalCode}`,
         userId: user?.id,
+        promoCode: isPromoApplied && promoCode ? promoCode : undefined,
       };
 
       const response = await fetch('/api/checkout/intent', {
@@ -625,25 +655,70 @@ export default function CheckoutPage() {
                 ))}
               </div>
 
-              {/* Promo Code Input */}
-              <div className="flex gap-3 pt-2">
-                <div className="relative flex-1">
-                  <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/40 dark:text-zinc-500" />
-                  <input
-                    type="text"
-                    placeholder="Add promo code"
-                    className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none pl-12 pr-4 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white"
-                    value={promoInput}
-                    onChange={(e) => setPromoInput(e.target.value)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleApplyPromo}
-                  className="h-[48px] px-6 rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[14px] hover:bg-black/80 dark:hover:bg-white/80 transition-all shrink-0 active:scale-95 cursor-pointer"
-                >
-                  Apply
-                </button>
+              {/* Promo Code Input & Badges */}
+              <div className="space-y-2 pt-2">
+                {isPromoApplied && promoCode ? (
+                  <div className="flex items-center justify-between p-3 rounded-[16px] bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300">
+                    <div className="flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <div>
+                        <span className="font-bold uppercase">{promoCode}</span>
+                        <span className="text-[11px] ml-1.5 opacity-80">
+                          ({discountPercentage}% Off Applied)
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemovePromo}
+                      className="text-xs text-rose-600 hover:text-rose-800 dark:text-rose-400 underline font-medium cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    <div className="relative flex-1">
+                      <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/40 dark:text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="Add promo code (e.g. SHOP20)"
+                        className="w-full h-[48px] rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none pl-12 pr-4 font-satoshi text-[14px] placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white uppercase"
+                        value={promoInput}
+                        onChange={(e) => {
+                          setPromoInput(e.target.value);
+                          setPromoError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyPromo(e);
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleApplyPromo}
+                      className="h-[48px] px-6 rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[14px] hover:bg-black/80 dark:hover:bg-white/80 transition-all shrink-0 active:scale-95 cursor-pointer"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                )}
+
+                {promoError && (
+                  <p className="text-[12px] text-rose-500 font-medium pl-3">
+                    {promoError}
+                  </p>
+                )}
+
+                {promoMessage && (
+                  <p className="text-[12px] text-emerald-600 dark:text-emerald-400 font-medium pl-3 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {promoMessage}
+                  </p>
+                )}
               </div>
 
               {/* Pricing Breakdown */}
@@ -670,7 +745,9 @@ export default function CheckoutPage() {
 
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-emerald-600 font-medium">
-                    <span>Discount</span>
+                    <span>
+                      Discount {discountPercentage > 0 ? `(-${discountPercentage}%)` : ''}
+                    </span>
                     <span>-${discountAmount.toFixed(2)}</span>
                   </div>
                 )}
@@ -687,25 +764,25 @@ export default function CheckoutPage() {
                   type="submit"
                   form="shipping-form"
                   disabled={isSubmitting}
-                  className="w-full h-[54px] rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-bold text-[16px] flex items-center justify-center gap-2 hover:bg-black/80 dark:hover:bg-white/80 transition-all active:scale-95 shadow-md disabled:opacity-50 cursor-pointer"
+                  className="w-full min-h-[50px] py-3.5 px-5 rounded-[62px] bg-black dark:bg-white text-white dark:text-black font-satoshi font-semibold text-[14px] sm:text-[15px] flex items-center justify-center gap-2 hover:bg-black/85 dark:hover:bg-white/85 transition-all active:scale-[0.99] shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                       <span>Initializing Gateway...</span>
-                    </>
+                    </span>
                   ) : selectedPaymentMethod === 'CARD' ? (
-                    <>
-                      <Lock className="w-4 h-4 mr-2" />
-                      <span>Continue to Payment (${grandTotal.toFixed(2)})</span>
-                    </>
+                    <span className="flex items-center justify-center gap-1.5 text-center leading-tight">
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span>Continue to Payment</span>
+                      <span className="font-bold ml-0.5">(${grandTotal.toFixed(2)})</span>
+                    </span>
                   ) : (
-                    <>
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500 mr-2" />
-                      <span>
-                        Confirm Cash on Delivery (${grandTotal.toFixed(2)})
-                      </span>
-                    </>
+                    <span className="flex items-center justify-center gap-1.5 text-center leading-tight">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>Confirm Cash on Delivery</span>
+                      <span className="font-bold ml-0.5">(${grandTotal.toFixed(2)})</span>
+                    </span>
                   )}
                 </button>
               ) : (

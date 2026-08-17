@@ -117,18 +117,19 @@ export function StripePaymentForm({
       <Button
         type="submit"
         disabled={!stripe || isLoading}
-        className="h-12 w-full rounded-[62px] bg-black text-sm font-bold text-white hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/85 shadow-md transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+        className="min-h-[50px] py-3.5 px-5 w-full rounded-[62px] bg-black text-[14px] sm:text-[15px] font-semibold text-white hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/85 shadow-sm transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
       >
         {isLoading ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            Settling ${totalAmount.toFixed(2)} USD...
-          </>
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+            <span>Settling ${totalAmount.toFixed(2)} USD...</span>
+          </span>
         ) : (
-          <>
-            <Lock className="h-4 w-4 mr-2" />
-            Authorize & Pay ${totalAmount.toFixed(2)} USD
-          </>
+          <span className="flex items-center justify-center gap-1.5 text-center leading-tight">
+            <Lock className="h-3.5 w-3.5 shrink-0" />
+            <span>Authorize & Pay</span>
+            <span className="font-bold ml-0.5">(${totalAmount.toFixed(2)})</span>
+          </span>
         )}
       </Button>
     </form>

@@ -10,6 +10,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  ProductDeleteDialog,
+  ProductToDelete,
+} from '@/components/admin/product-delete-dialog';
+import { AdminToast, AdminToastState } from '@/components/admin/admin-toast';
+import {
   Plus,
   Search,
   Star,
@@ -60,7 +65,8 @@ export function ProductsTable({
 
   const [search, setSearch] = useState(currentSearch);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [productToDelete, setProductToDelete] = useState<ProductToDelete | null>(null);
+  const [toastState, setToastState] = useState<AdminToastState | null>(null);
 
   const updateFilters = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -102,27 +108,30 @@ export function ProductsTable({
     );
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) return;
-
-    setDeletingId(id);
-    startTransition(async () => {
-      const res = await deleteProduct(id);
-      setDeletingId(null);
-      if (!res.success) {
-        alert(res.error || 'Failed to delete product.');
-      } else {
-        router.refresh();
-      }
+  const openDeleteDialog = (product: AdminProductItem) => {
+    setProductToDelete({
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      imageUrl: product.imageUrl,
+      price: product.price,
     });
   };
 
+  const handleDeleteSuccess = (msg: string) => {
+    setToastState({
+      type: 'success',
+      message: msg,
+    });
+    router.refresh();
+  };
+
   return (
-    <div className="space-y-6 font-satoshi text-black dark:text-white transition-colors">
+    <div className="space-y-6 font-admin text-black dark:text-white transition-colors">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold font-integral uppercase tracking-tight text-black dark:text-white">
+          <h1 className="text-2xl font-extrabold font-admin uppercase tracking-tight text-black dark:text-white">
             PRODUCTS CATALOG
           </h1>
           <p className="text-xs text-black/60 dark:text-zinc-400 mt-1">
@@ -325,9 +334,9 @@ export function ProductsTable({
                         <Button
                           variant="ghost"
                           size="icon"
-                          disabled={deletingId === prod.id || isPending}
-                          onClick={() => handleDelete(prod.id)}
-                          className="h-7 w-7 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                          disabled={isPending}
+                          onClick={() => openDeleteDialog(prod)}
+                          className="h-7 w-7 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
                           title="Delete Product"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -361,7 +370,7 @@ export function ProductsTable({
               size="sm"
               disabled={pagination.page <= 1 || isPending}
               onClick={() => handlePageChange(pagination.page - 1)}
-              className="h-8 w-8 p-0 rounded-lg border-black/10 dark:border-zinc-800"
+              className="h-8 w-8 p-0 rounded-lg border-black/10 dark:border-zinc-800 cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -370,13 +379,27 @@ export function ProductsTable({
               size="sm"
               disabled={pagination.page >= pagination.totalPages || isPending}
               onClick={() => handlePageChange(pagination.page + 1)}
-              className="h-8 w-8 p-0 rounded-lg border-black/10 dark:border-zinc-800"
+              className="h-8 w-8 p-0 rounded-lg border-black/10 dark:border-zinc-800 cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
       )}
+
+      {/* On-Screen Product Deletion & Archive Modal */}
+      <ProductDeleteDialog
+        isOpen={Boolean(productToDelete)}
+        onClose={() => setProductToDelete(null)}
+        product={productToDelete}
+        onDeleted={handleDeleteSuccess}
+      />
+
+      {/* On-Screen Toast Notifications */}
+      <AdminToast
+        toast={toastState}
+        onDismiss={() => setToastState(null)}
+      />
     </div>
   );
 }

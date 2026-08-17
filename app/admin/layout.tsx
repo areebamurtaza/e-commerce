@@ -13,7 +13,7 @@ export default function AdminLayout({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-white font-satoshi text-black antialiased dark:bg-black dark:text-white transition-colors">
+    <div className="flex min-h-screen bg-white font-admin text-black antialiased dark:bg-black dark:text-white transition-colors">
       {/* Collapsible Admin Sidebar */}
       <AdminSidebar
         mobileOpen={mobileOpen}

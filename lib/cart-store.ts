@@ -2,6 +2,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { CartItem, CartItemInput, OrderSummaryValues } from '@/types/cart';
+import { validatePromoCode } from '@/lib/constants';
 
 export interface CartState {
   items: CartItem[];
@@ -15,6 +16,7 @@ export interface CartState {
   updateQuantity: (id: string, delta: number) => void;
   removeItem: (id: string) => void;
   applyPromoCode: (code: string) => boolean;
+  removePromoCode: () => void;
   clearCart: () => void;
 
   // Selectors & Computations
@@ -93,20 +95,21 @@ export const useCartStore = create<CartState>()(
       },
 
       applyPromoCode: (code: string) => {
-        const trimmed = code.trim().toUpperCase();
-        if (trimmed === 'SHOP20') {
-          set({ promoCode: trimmed, discountPercentage: 20, isPromoApplied: true });
+        const { valid, discountPercent, code: formattedCode } = validatePromoCode(code);
+        if (valid && formattedCode) {
+          set({
+            promoCode: formattedCode,
+            discountPercentage: discountPercent,
+            isPromoApplied: true,
+          });
           return true;
         }
-        if (trimmed === 'SAVE30') {
-          set({ promoCode: trimmed, discountPercentage: 30, isPromoApplied: true });
-          return true;
-        }
-        if (trimmed.length > 0) {
-          set({ promoCode: trimmed, isPromoApplied: true });
-          return true;
-        }
+        set({ promoCode: '', discountPercentage: 0, isPromoApplied: false });
         return false;
+      },
+
+      removePromoCode: () => {
+        set({ promoCode: '', discountPercentage: 0, isPromoApplied: false });
       },
 
       clearCart: () => set({ items: [] }),

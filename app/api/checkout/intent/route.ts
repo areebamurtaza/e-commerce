@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { stripe } from '@/lib/stripe';
-import { ORDER_CONFIG } from '@/lib/constants';
+import { ORDER_CONFIG, validatePromoCode, PRISMA_TX_OPTIONS } from '@/lib/constants';
 import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { z } from 'zod';
 
@@ -28,6 +28,7 @@ const checkoutIntentSchema = z.object({
   customerEmail: z.string().trim().email('Valid email address is required'),
   shippingAddress: z.string().trim().min(5, 'Valid shipping address is required'),
   userId: z.string().optional().nullable(),
+  promoCode: z.string().optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { items, customerName, customerEmail, shippingAddress, userId } =
+    const { items, customerName, customerEmail, shippingAddress, userId, promoCode } =
       validation.data;
 
     return await withDbRetry(async () => {
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
 
       // 5. Calculate Server-Side Subtotal, Discount & Shipping
       let calculatedSubtotal = 0;
-      let calculatedDiscount = 0;
+      let calculatedProductDiscount = 0;
 
       const orderItemsData = items.map((item) => {
         const variant = dbVariants.find((v) => v.id === item.variantId)!;
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
         const lineOriginalTotal = Number((originalUnitPrice * item.quantity).toFixed(2));
 
         calculatedSubtotal += lineOriginalTotal;
-        calculatedDiscount += lineOriginalTotal - lineTotal;
+        calculatedProductDiscount += lineOriginalTotal - lineTotal;
 
         return {
           variantId: variant.id,
@@ -159,13 +160,31 @@ export async function POST(req: NextRequest) {
       });
 
       calculatedSubtotal = Number(calculatedSubtotal.toFixed(2));
-      calculatedDiscount = Number(calculatedDiscount.toFixed(2));
+      calculatedProductDiscount = Number(calculatedProductDiscount.toFixed(2));
+
+      // Calculate Promo Code Discount
+      let promoDiscountAmount = 0;
+      let appliedPromoCode: string | null = null;
+      if (promoCode) {
+        const promoValidation = validatePromoCode(promoCode);
+        if (promoValidation.valid && promoValidation.discountPercent > 0) {
+          appliedPromoCode = promoValidation.code || promoCode.toUpperCase();
+          const discountedSubtotal = Math.max(0, calculatedSubtotal - calculatedProductDiscount);
+          promoDiscountAmount = Number(
+            ((discountedSubtotal * promoValidation.discountPercent) / 100).toFixed(2)
+          );
+        }
+      }
+
+      const totalDiscount = Number(
+        (calculatedProductDiscount + promoDiscountAmount).toFixed(2)
+      );
       const deliveryFee =
         calculatedSubtotal > ORDER_CONFIG.FREE_SHIPPING_THRESHOLD
           ? 0
           : ORDER_CONFIG.STANDARD_SHIPPING_FEE;
       const grandTotal = Number(
-        Math.max(0, calculatedSubtotal - calculatedDiscount + deliveryFee).toFixed(2)
+        Math.max(0, calculatedSubtotal - totalDiscount + deliveryFee).toFixed(2)
       );
 
       // 6. Dynamic Expiration Calculation based on ORDER_CONFIG
@@ -185,7 +204,7 @@ export async function POST(req: NextRequest) {
               customerEmail,
               shippingAddress,
               subtotal: calculatedSubtotal,
-              discount: calculatedDiscount,
+              discount: totalDiscount,
               shippingFee: deliveryFee,
               total: grandTotal,
               status: OrderStatus.PENDING,
@@ -210,7 +229,7 @@ export async function POST(req: NextRequest) {
 
           return order;
         },
-        { timeout: 15000 }
+        PRISMA_TX_OPTIONS
       );
 
       // 8. Create Stripe PaymentIntent

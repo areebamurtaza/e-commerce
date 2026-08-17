@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma, withDbRetry } from '@/lib/prisma';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { PRISMA_TX_OPTIONS } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
             },
           });
         },
-        { timeout: 15000 }
+        PRISMA_TX_OPTIONS
       );
 
       revalidatePath('/admin/orders');

@@ -47,11 +47,11 @@ export default async function AdminDashboardOverviewPage() {
   const { kpi, recentOrders, monthlyRevenue, categoryDistribution } = data;
 
   return (
-    <div className="space-y-8 font-satoshi text-black dark:text-white pb-16">
+    <div className="space-y-8 font-admin text-black dark:text-white pb-16">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="font-integral font-bold text-2xl sm:text-3xl uppercase tracking-tight">
+          <h1 className="font-admin font-extrabold text-2xl sm:text-3xl uppercase tracking-tight">
             Dashboard Overview
           </h1>
           <p className="text-xs sm:text-sm text-black/60 dark:text-zinc-400 mt-1">

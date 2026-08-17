@@ -28,7 +28,7 @@ export function AdminHeader({ onMenuToggle }: AdminHeaderProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-black/10 dark:border-zinc-800 bg-white/90 dark:bg-black/90 px-4 backdrop-blur md:px-6 font-satoshi transition-colors">
+    <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-black/10 dark:border-zinc-800 bg-white/90 dark:bg-black/90 px-4 backdrop-blur md:px-6 font-admin transition-colors">
       {/* Left: Mobile Drawer Trigger & Search Input */}
       <div className="flex items-center gap-3">
         <Button

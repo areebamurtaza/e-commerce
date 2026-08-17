@@ -37,15 +37,15 @@ export function AdminSidebar({ mobileOpen, onMobileClose }: AdminSidebarProps) {
   ];
 
   const sidebarContent = (
-    <div className="flex h-full flex-col justify-between bg-white dark:bg-black text-black dark:text-white border-r border-black/10 dark:border-zinc-800 p-4 font-satoshi select-none transition-colors">
+    <div className="flex h-full flex-col justify-between bg-white dark:bg-black text-black dark:text-white border-r border-black/10 dark:border-zinc-800 p-4 font-admin select-none transition-colors">
       <div className="space-y-6">
         {/* Brand Header */}
         <div className="flex items-center justify-between px-2 pt-1">
           <Link href="/admin" className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black dark:bg-white text-white dark:text-black font-integral font-bold text-lg">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black dark:bg-white text-white dark:text-black font-admin font-extrabold text-lg">
               S
             </div>
-            <span className="font-integral text-base font-bold tracking-tight text-black dark:text-white">
+            <span className="font-admin text-base font-extrabold tracking-tight text-black dark:text-white">
               SHOP.CO ADMIN
             </span>
           </Link>

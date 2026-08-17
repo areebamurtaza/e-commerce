@@ -8,6 +8,7 @@ import { verifyAdmin } from '@/lib/admin-auth';
 import { OrderStatus, PaymentStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { sendOrderConfirmationEmail, OrderItemEmailPayload } from '@/lib/email';
+import { PRISMA_TX_OPTIONS } from '@/lib/constants';
 
 // ==========================================
 // 1. CANONICAL PRISMA TYPES
@@ -195,73 +196,98 @@ export async function confirmStripeOrderPayment(
 ): Promise<ActionResponse<{ orderId: string; orderNumber: string }>> {
   try {
     return await withDbRetry(async () => {
-      const order = await prisma.$transaction(async (tx) => {
-        const targetOrder = await tx.order.findUnique({
-          where: { id: orderId },
-          include: { items: true },
-        });
-
-        if (!targetOrder) {
-          throw new Error('Order record not found.');
-        }
-
-        if (targetOrder.paymentStatus === PaymentStatus.SUCCEEDED) {
-          return targetOrder;
-        }
-
-        // Deduct inventory stock for each purchased item
-        for (const item of targetOrder.items) {
-          const variant = await tx.productVariant.findUnique({
-            where: { id: item.variantId },
-          });
-
-          if (variant) {
-            await tx.productVariant.update({
-              where: { id: item.variantId },
-              data: {
-                stockQuantity: {
-                  decrement: Math.min(variant.stockQuantity, item.quantity),
+      const order = await prisma.$transaction(
+        async (tx) => {
+          const targetOrder = await tx.order.findUnique({
+            where: { id: orderId },
+            include: {
+              items: {
+                include: {
+                  variant: {
+                    include: {
+                      product: {
+                        include: {
+                          images: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
-            });
+            },
+          });
+
+          if (!targetOrder) {
+            throw new Error('Order record not found.');
           }
-        }
 
-        const fee = Number((targetOrder.total * 0.029 + 0.3).toFixed(2));
-        const netAmount = Number((targetOrder.total - fee).toFixed(2));
+          if (targetOrder.paymentStatus === PaymentStatus.SUCCEEDED) {
+            return targetOrder;
+          }
 
-        const updatedOrder = await tx.order.update({
-          where: { id: orderId },
-          data: {
-            status: OrderStatus.PROCESSING,
-            paymentStatus: PaymentStatus.SUCCEEDED,
-            expiresAt: null,
-          },
-          include: {
-            items: true,
-          },
-        });
+          // Deduct inventory stock for each purchased item concurrently
+          await Promise.all(
+            targetOrder.items.map((item) =>
+              tx.productVariant.update({
+                where: { id: item.variantId },
+                data: {
+                  stockQuantity: {
+                    decrement: item.quantity,
+                  },
+                },
+              })
+            )
+          );
 
-        await tx.payment.upsert({
-          where: { orderId },
-          update: {
-            status: PaymentStatus.SUCCEEDED,
-            stripePaymentIntentId: paymentIntentId,
-            fee,
-            netAmount,
-          },
-          create: {
-            orderId,
-            status: PaymentStatus.SUCCEEDED,
-            stripePaymentIntentId: paymentIntentId,
-            amount: targetOrder.total,
-            fee,
-            netAmount,
-          },
-        });
+          const fee = Number((targetOrder.total * 0.029 + 0.3).toFixed(2));
+          const netAmount = Number((targetOrder.total - fee).toFixed(2));
 
-        return updatedOrder;
-      });
+          const updatedOrder = await tx.order.update({
+            where: { id: orderId },
+            data: {
+              status: OrderStatus.PROCESSING,
+              paymentStatus: PaymentStatus.SUCCEEDED,
+              expiresAt: null,
+            },
+            include: {
+              items: {
+                include: {
+                  variant: {
+                    include: {
+                      product: {
+                        include: {
+                          images: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          await tx.payment.upsert({
+            where: { orderId },
+            update: {
+              status: PaymentStatus.SUCCEEDED,
+              stripePaymentIntentId: paymentIntentId,
+              fee,
+              netAmount,
+            },
+            create: {
+              orderId,
+              status: PaymentStatus.SUCCEEDED,
+              stripePaymentIntentId: paymentIntentId,
+              amount: targetOrder.total,
+              fee,
+              netAmount,
+            },
+          });
+
+          return updatedOrder;
+        },
+        PRISMA_TX_OPTIONS
+      );
 
       // Asynchronous, non-blocking transactional email notification
       try {
@@ -272,12 +298,17 @@ export async function confirmStripeOrderPayment(
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           total: item.total,
+          image:
+            item.variant?.product?.images?.find((img) => img.isPrimary)?.url ||
+            item.variant?.product?.images?.[0]?.url ||
+            '/images/pd1.png',
         }));
 
         sendOrderConfirmationEmail({
           toEmail: order.customerEmail,
           customerName: order.customerName,
           orderNumber: order.orderNumber,
+          orderId: order.id,
           totalAmount: order.total,
           shippingAddress: order.shippingAddress,
           subtotal: order.subtotal,
@@ -417,10 +448,22 @@ export async function createCashOnDeliveryOrder(
             },
           },
           include: {
-            items: true,
+            items: {
+              include: {
+                variant: {
+                  include: {
+                    product: {
+                      include: {
+                        images: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         });
-      });
+      }, PRISMA_TX_OPTIONS);
 
       // Asynchronous, non-blocking transactional email notification for Cash on Delivery
       try {
@@ -431,12 +474,17 @@ export async function createCashOnDeliveryOrder(
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           total: item.total,
+          image:
+            item.variant?.product?.images?.find((img) => img.isPrimary)?.url ||
+            item.variant?.product?.images?.[0]?.url ||
+            '/images/pd1.png',
         }));
 
         sendOrderConfirmationEmail({
           toEmail: order.customerEmail,
           customerName: order.customerName,
           orderNumber: order.orderNumber,
+          orderId: order.id,
           totalAmount: order.total,
           shippingAddress: order.shippingAddress,
           subtotal: order.subtotal,
@@ -595,10 +643,22 @@ export async function createCheckoutOrder(
             },
           },
           include: {
-            items: true,
+            items: {
+              include: {
+                variant: {
+                  include: {
+                    product: {
+                      include: {
+                        images: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         });
-      });
+      }, PRISMA_TX_OPTIONS);
 
       if (isPaymentSettled) {
         try {
@@ -609,12 +669,17 @@ export async function createCheckoutOrder(
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             total: item.total,
+            image:
+              item.variant?.product?.images?.find((img) => img.isPrimary)?.url ||
+              item.variant?.product?.images?.[0]?.url ||
+              '/images/pd1.png',
           }));
 
           sendOrderConfirmationEmail({
             toEmail: createdOrder.customerEmail,
             customerName: createdOrder.customerName,
             orderNumber: createdOrder.orderNumber,
+            orderId: createdOrder.id,
             totalAmount: createdOrder.total,
             shippingAddress: createdOrder.shippingAddress,
             subtotal: createdOrder.subtotal,
@@ -1062,7 +1127,7 @@ export async function updateOrderStatus(
           currentStatus: updatedOrder.status,
           paymentStatus: updatedOrder.paymentStatus,
         };
-      });
+      }, PRISMA_TX_OPTIONS);
 
       revalidatePath('/admin/products');
       revalidatePath('/admin/orders');
@@ -1107,20 +1172,20 @@ export async function updateOrderPaymentStatus(
       const fee = Number((order.total * 0.029 + 0.3).toFixed(2));
       const netAmount = Number((order.total - fee).toFixed(2));
 
-      await prisma.$transaction([
-        prisma.order.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.order.update({
           where: { id: orderId },
           data: { paymentStatus: newPaymentStatus },
-        }),
-        prisma.payment.updateMany({
+        });
+        await tx.payment.updateMany({
           where: { orderId },
           data: {
             status: newPaymentStatus,
             fee: newPaymentStatus === PaymentStatus.SUCCEEDED ? fee : 0,
             netAmount: newPaymentStatus === PaymentStatus.SUCCEEDED ? netAmount : 0,
           },
-        }),
-      ]);
+        });
+      }, PRISMA_TX_OPTIONS);
 
       revalidatePath('/admin/orders');
       revalidatePath(`/admin/orders/${orderId}`);

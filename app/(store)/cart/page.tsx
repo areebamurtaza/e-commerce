@@ -14,12 +14,14 @@ export default function CartPage() {
 
   const {
     items,
+    promoCode,
     discountPercentage,
     deliveryFee,
     isPromoApplied,
     updateQuantity,
     removeItem,
     applyPromoCode,
+    removePromoCode,
     getSubtotal,
     getDiscountAmount,
     getTotal,
@@ -90,7 +92,9 @@ export default function CartPage() {
                 deliveryFee={deliveryFee}
                 total={total}
                 isPromoApplied={isPromoApplied}
+                promoCode={promoCode}
                 onApplyPromoCode={applyPromoCode}
+                onRemovePromoCode={removePromoCode}
                 onCheckout={handleCheckout}
               />
             </div>

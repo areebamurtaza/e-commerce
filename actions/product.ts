@@ -12,7 +12,7 @@ import {
 } from '@/schemas/product';
 import { DressStyle, Gender, Prisma } from '@prisma/client';
 import { ALL_TAXONOMY_CATEGORIES } from '@/constants/shop';
-import { DB_TIMEOUT_CONFIG } from '@/lib/constants';
+import { DB_TIMEOUT_CONFIG, PRISMA_TX_OPTIONS } from '@/lib/constants';
 
 // ============================================================================
 // DOMAIN TYPES & INTERFACES
@@ -500,10 +500,7 @@ export async function createProduct(
             },
           });
         },
-        {
-          maxWait: 5000,
-          timeout: 20000,
-        }
+        PRISMA_TX_OPTIONS
       );
 
       revalidatePath('/admin/products');
@@ -657,10 +654,7 @@ export async function updateProduct(
             },
           });
         },
-        {
-          maxWait: 5000,
-          timeout: 20000, // 20-second threshold for remote serverless pools
-        }
+        PRISMA_TX_OPTIONS
       );
 
       revalidatePath('/admin/products');
@@ -688,7 +682,14 @@ export async function updateProduct(
   }
 }
 
-export async function deleteProduct(id: string): Promise<ActionResponse> {
+export interface DeleteProductOptions {
+  force?: boolean;
+}
+
+export async function deleteProduct(
+  id: string,
+  options: DeleteProductOptions = {}
+): Promise<ActionResponse<{ linkedOrders?: boolean; orderCount?: number }>> {
   try {
     await verifyAdmin();
 
@@ -697,17 +698,56 @@ export async function deleteProduct(id: string): Promise<ActionResponse> {
         where: { variant: { productId: id } },
       });
 
-      if (orderItemCount > 0) {
+      if (orderItemCount > 0 && !options.force) {
         return {
           success: false,
-          error:
-            'Cannot delete this product because it is linked to existing customer orders. Set variant stock to 0 instead.',
+          data: { linkedOrders: true, orderCount: orderItemCount },
+          error: `Cannot delete directly because this product is referenced in ${orderItemCount} customer order record(s). Choose "Archive & Hide" to preserve history, or "Force Delete" to remove all test records.`,
         };
       }
 
-      await prisma.product.delete({
-        where: { id },
-      });
+      if (options.force) {
+        await prisma.$transaction(
+          async (tx) => {
+            // 1. Delete reviews
+            await tx.review.deleteMany({ where: { productId: id } });
+
+            // 2. Query variants
+            const variants = await tx.productVariant.findMany({
+              where: { productId: id },
+              select: { id: true },
+            });
+            const variantIds = variants.map((v) => v.id);
+
+            if (variantIds.length > 0) {
+              // 3. Delete order items referencing variants
+              await tx.orderItem.deleteMany({
+                where: { variantId: { in: variantIds } },
+              });
+
+              // 4. Delete variants
+              await tx.productVariant.deleteMany({
+                where: { productId: id },
+              });
+            }
+
+            // 5. Delete product images
+            await tx.productImage.deleteMany({
+              where: { productId: id },
+            });
+
+            // 6. Delete product
+            await tx.product.delete({
+              where: { id },
+            });
+          },
+          PRISMA_TX_OPTIONS
+        );
+      } else {
+        await prisma.product.delete({
+          where: { id },
+        });
+      }
 
       revalidatePath('/admin/products');
       revalidatePath('/shop');
@@ -721,6 +761,49 @@ export async function deleteProduct(id: string): Promise<ActionResponse> {
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete product.',
+    };
+  }
+}
+
+export async function archiveProduct(id: string): Promise<ActionResponse> {
+  try {
+    await verifyAdmin();
+
+    return await withDbRetry(async () => {
+      await prisma.$transaction(
+        async (tx) => {
+          // Zero all variant stocks and update product flags
+          await tx.productVariant.updateMany({
+            where: { productId: id },
+            data: { stockQuantity: 0 },
+          });
+
+          await tx.product.update({
+            where: { id },
+            data: {
+              isFeatured: false,
+              isNewArrival: false,
+            },
+          });
+        },
+        PRISMA_TX_OPTIONS
+      );
+
+      revalidatePath('/admin/products');
+      revalidatePath('/shop');
+      revalidatePath('/');
+
+      return {
+        success: true,
+        message: 'Product archived successfully. Stock set to 0 and hidden from featured shop shelves.',
+      };
+    });
+  } catch (error) {
+    if (isDynamicServerError(error)) throw error;
+    console.error('[ACTIONS_ARCHIVE_PRODUCT_ERROR]:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to archive product.',
     };
   }
 }

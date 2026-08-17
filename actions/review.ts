@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma, withDbRetry } from '@/lib/prisma';
 import { createReviewSchema, CreateReviewInput } from '@/schemas/review';
 import { currentUser } from '@clerk/nextjs/server';
+import { PRISMA_TX_OPTIONS } from '@/lib/constants';
 
 export interface RatingBreakdownItem {
   stars: number;
@@ -230,7 +231,7 @@ export async function createProductReview(input: CreateReviewInput): Promise<Rev
           },
           product: updatedProduct,
         };
-      });
+      }, PRISMA_TX_OPTIONS);
 
       // 5. Trigger Next.js on-demand cache revalidation
       revalidatePath(`/product/${transactionResult.product.id}`);
@@ -294,7 +295,7 @@ export async function deleteProductReview(
             slug: true,
           },
         });
-      });
+      }, PRISMA_TX_OPTIONS);
 
       revalidatePath(`/product/${targetProduct.id}`);
       revalidatePath(`/product/${targetProduct.slug}`);

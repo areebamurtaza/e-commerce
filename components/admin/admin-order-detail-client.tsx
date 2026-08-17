@@ -8,6 +8,7 @@ import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { updateOrderStatus } from '@/actions/order';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PrintableInvoice } from '@/components/invoice/printable-invoice';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -162,9 +163,9 @@ export function AdminOrderDetailClient({ order }: OrderDetailClientProps) {
             onClick={handlePrintReceipt}
             variant="outline"
             size="sm"
-            className="h-8.5 text-xs font-semibold gap-1.5 rounded-[62px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white px-5"
+            className="h-8.5 text-xs font-semibold gap-1.5 rounded-[62px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white px-5 cursor-pointer"
           >
-            <Printer className="h-3.5 w-3.5" /> Print
+            <Printer className="h-3.5 w-3.5" /> Print Invoice
           </Button>
 
           <DropdownMenu>
@@ -395,6 +396,9 @@ export function AdminOrderDetailClient({ order }: OrderDetailClientProps) {
           </Card>
         </div>
       </div>
+
+      {/* Dedicated Printable Commercial Tax Invoice (Only visible when printing) */}
+      <PrintableInvoice order={order} />
     </div>
   );
 }

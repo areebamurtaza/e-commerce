@@ -19,6 +19,7 @@ import {
 import { getOrderById } from '@/actions/order';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { OrderTrackingActions } from '@/components/checkout/order-tracking-actions';
+import { PrintableInvoice } from '@/components/invoice/printable-invoice';
 
 interface OrderDetailPageProps {
   params: Promise<{
@@ -357,6 +358,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           </div>
         </div>
       </div>
+
+      {/* Dedicated Printable Commercial Tax Invoice (Only visible when printing) */}
+      <PrintableInvoice order={order} />
     </div>
   );
 }
