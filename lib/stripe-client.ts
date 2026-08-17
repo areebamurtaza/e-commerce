@@ -14,7 +14,13 @@ export const getStripe = (): Promise<StripeClient | null> => {
       return Promise.resolve(null);
     }
 
-    stripePromise = loadStripe(publishableKey);
+    stripePromise = loadStripe(publishableKey, {
+      developerTools: {
+        assistant: {
+          enabled: false,
+        },
+      },
+    } as Parameters<typeof loadStripe>[1]);
   }
 
   return stripePromise;

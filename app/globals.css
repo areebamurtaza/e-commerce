@@ -55,6 +55,19 @@
   font-family: var(--font-admin), 'Plus Jakarta Sans', sans-serif;
 }
 
+/* Suppress Stripe Developer Assistant floating widget */
+[data-stripe-assistant],
+.StripeAssistant,
+.stripe-assistant-root,
+#stripe-developer-assistant,
+[class*="StripeAssistant"],
+[class*="developer-assistant"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 @media print {
   /* Hide all website chrome, navigation, headers, footers, buttons */
   body * {
