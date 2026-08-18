@@ -405,3 +405,103 @@ export async function sendOrderConfirmationEmail(
     };
   }
 }
+
+export interface SendOrderStatusEmailParams {
+  toEmail: string;
+  customerName: string;
+  orderNumber: string;
+  orderId: string;
+  newStatus: string;
+  carrier?: string;
+  trackingNumber?: string;
+}
+
+/**
+ * Sends order status update email (e.g. SHIPPED, DELIVERED)
+ */
+export async function sendOrderStatusUpdateEmail(
+  params: SendOrderStatusEmailParams
+): Promise<EmailResponse> {
+  try {
+    if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.startsWith('re_dummy')) {
+      console.info(
+        `[EMAIL_DEV_MODE]: Skipping status update email to ${params.toEmail} for order ${params.orderNumber}.`
+      );
+      return { success: true };
+    }
+
+    const appBaseUrl =
+      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://shopco-byareeba.vercel.app');
+
+    const trackingUrl = `${appBaseUrl}/orders/${params.orderId}`;
+    const statusTitle =
+      params.newStatus === 'SHIPPED'
+        ? '📦 Your Order Has Shipped!'
+        : params.newStatus === 'DELIVERED'
+        ? '🎉 Your Order Has Been Delivered!'
+        : `Order #${params.orderNumber} Status: ${params.newStatus}`;
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${statusTitle}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAFAFA; margin: 0; padding: 24px; color: #111111;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 580px; margin: 0 auto; background-color: #FFFFFF; border-radius: 16px; border: 1px solid #E5E5E5; overflow: hidden;">
+    <tr>
+      <td style="background-color: #000000; padding: 24px 32px; text-align: center;">
+        <h1 style="color: #FFFFFF; font-size: 26px; font-weight: 900; letter-spacing: -0.5px; margin: 0; text-transform: uppercase;">SHOP.CO</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px;">
+        <h2 style="font-size: 20px; font-weight: 800; margin: 0 0 12px 0; color: #111111;">${statusTitle}</h2>
+        <p style="font-size: 14px; line-height: 1.6; color: #555555; margin: 0 0 20px 0;">
+          Hi <strong>${params.customerName}</strong>,<br>
+          Great news! The status of your order <strong>#${params.orderNumber}</strong> has been updated to <strong style="color: #000000; text-transform: uppercase;">${params.newStatus}</strong>.
+        </p>
+
+        <div style="background-color: #F7F7F7; border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+          <p style="margin: 0 0 8px 0; font-size: 13px; color: #666666;"><strong>Order Reference:</strong> #${params.orderNumber}</p>
+          <p style="margin: 0; font-size: 13px; color: #666666;"><strong>Current Status:</strong> <span style="display: inline-block; padding: 2px 8px; border-radius: 99px; background-color: #E6F4EA; color: #137333; font-weight: bold; font-size: 11px;">${params.newStatus}</span></p>
+        </div>
+
+        <div style="text-align: center; margin: 28px 0 16px 0;">
+          <a href="${trackingUrl}" style="background-color: #000000; color: #FFFFFF; text-decoration: none; padding: 14px 28px; border-radius: 99px; font-size: 14px; font-weight: bold; display: inline-block;">
+            Track Your Package ➔
+          </a>
+        </div>
+
+        <p style="font-size: 12px; color: #888888; text-align: center; margin: 20px 0 0 0;">
+          If you have questions regarding your delivery, simply reply directly to this email.
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `;
+
+    const { data, error } = await resend.emails.send({
+      from: emailFrom,
+      to: [params.toEmail],
+      subject: `${statusTitle} (#${params.orderNumber})`,
+      html: htmlContent,
+    });
+
+    if (error) {
+      console.error('[EMAIL_STATUS_UPDATE_ERROR]:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, messageId: data?.id };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown status email error';
+    console.error('[EMAIL_STATUS_EXCEPTION]:', errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}

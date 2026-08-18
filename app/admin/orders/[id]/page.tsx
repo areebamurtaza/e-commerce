@@ -4,9 +4,11 @@ import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import { getAdminOrderById } from '@/actions/order';
 import { OrderStatusController } from '@/components/admin/order-status-controller';
+import { RefundDialog } from '@/components/admin/refund-dialog';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, User, MapPin, CreditCard, PackageCheck } from 'lucide-react';
+import { PaymentStatus } from '@prisma/client';
 
 interface OrderDetailPageProps {
   params: Promise<{ id: string }>;
@@ -52,11 +54,21 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
           </div>
         </div>
 
-        <OrderStatusController
-          orderId={order.id}
-          initialStatus={order.status}
-          initialPaymentStatus={order.paymentStatus}
-        />
+        <div className="flex items-center gap-3 flex-wrap">
+          <RefundDialog
+            orderId={order.id}
+            orderNumber={order.orderNumber}
+            totalAmount={order.total}
+            stripePaymentIntentId={order.payment?.stripePaymentIntentId}
+            isRefunded={order.paymentStatus === PaymentStatus.REFUNDED}
+          />
+
+          <OrderStatusController
+            orderId={order.id}
+            initialStatus={order.status}
+            initialPaymentStatus={order.paymentStatus}
+          />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-12 items-start">
@@ -137,16 +149,31 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
               <p className="text-black dark:text-white pt-1">{order.shippingAddress}</p>
             </div>
 
-            <div className="pt-3 border-t border-black/10 dark:border-zinc-800 text-xs space-y-1">
+            <div className="pt-3 border-t border-black/10 dark:border-zinc-800 text-xs space-y-2">
               <span className="font-bold flex items-center gap-1.5 text-black/60 dark:text-zinc-400">
-                <CreditCard className="h-3.5 w-3.5" /> Payment Status
+                <CreditCard className="h-3.5 w-3.5" /> Payment Details
               </span>
               <div className="pt-1 flex items-center justify-between">
-                <span className="font-mono font-bold uppercase">{order.paymentStatus}</span>
+                <span
+                  className={`font-mono font-bold text-xs uppercase px-2 py-0.5 rounded-md ${
+                    order.paymentStatus === PaymentStatus.SUCCEEDED
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : order.paymentStatus === PaymentStatus.REFUNDED
+                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                  }`}
+                >
+                  {order.paymentStatus}
+                </span>
                 <span className="text-[11px] text-black/50 dark:text-zinc-400 font-mono">
                   {order.payment?.paymentMethod || 'STRIPE'}
                 </span>
               </div>
+              {order.payment?.stripePaymentIntentId && (
+                <p className="text-[10px] text-black/40 dark:text-zinc-500 font-mono truncate">
+                  ID: {order.payment.stripePaymentIntentId}
+                </p>
+              )}
             </div>
           </Card>
         </div>

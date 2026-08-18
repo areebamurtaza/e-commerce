@@ -9,6 +9,7 @@ import { updateOrderStatus } from '@/actions/order';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PrintableInvoice } from '@/components/invoice/printable-invoice';
+import { RefundDialog } from '@/components/admin/refund-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -158,7 +159,15 @@ export function AdminOrderDetailClient({ order }: OrderDetailClientProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <RefundDialog
+            orderId={order.id}
+            orderNumber={order.orderNumber}
+            totalAmount={order.total}
+            stripePaymentIntentId={order.payment?.stripePaymentIntentId}
+            isRefunded={order.paymentStatus === PaymentStatus.REFUNDED}
+          />
+
           <Button
             onClick={handlePrintReceipt}
             variant="outline"

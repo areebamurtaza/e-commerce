@@ -95,6 +95,33 @@ export async function getProductReviews(productId: string): Promise<ProductRevie
         }),
       ]);
 
+      // 2. Fetch verified buyer list for this product
+      const reviewerUserIds = reviewsRaw
+        .map((r) => r.userId)
+        .filter(Boolean) as string[];
+      const buyerUserIdsSet = new Set<string>();
+
+      if (reviewerUserIds.length > 0) {
+        const matchingOrders = await prisma.orderItem.findMany({
+          where: {
+            variant: { productId: cleanProductId },
+            order: {
+              userId: { in: reviewerUserIds },
+              paymentStatus: { in: ['SUCCEEDED', 'PENDING'] },
+            },
+          },
+          select: {
+            order: {
+              select: { userId: true },
+            },
+          },
+        });
+
+        matchingOrders.forEach((o) => {
+          if (o.order.userId) buyerUserIdsSet.add(o.order.userId);
+        });
+      }
+
       const totalReviews = reviewsRaw.length;
       const ratingCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
       let ratingSum = 0;
@@ -112,7 +139,7 @@ export async function getProductReviews(productId: string): Promise<ProductRevie
           rating: rev.rating,
           comment: rev.comment,
           createdAt: rev.createdAt,
-          isVerified: Boolean(rev.userId && deliveredOrderCount > 0),
+          isVerified: Boolean(rev.userId && buyerUserIdsSet.has(rev.userId)),
           user: rev.user,
         };
       });

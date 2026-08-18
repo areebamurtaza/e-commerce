@@ -7,7 +7,12 @@ import { prisma, withDbRetry } from '@/lib/prisma';
 import { verifyAdmin } from '@/lib/admin-auth';
 import { OrderStatus, PaymentStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { sendOrderConfirmationEmail, OrderItemEmailPayload } from '@/lib/email';
+import {
+  sendOrderConfirmationEmail,
+  sendOrderStatusUpdateEmail,
+  OrderItemEmailPayload,
+} from '@/lib/email';
+import { stripe } from '@/lib/stripe';
 import { PRISMA_TX_OPTIONS } from '@/lib/constants';
 
 // ==========================================
@@ -1126,8 +1131,24 @@ export async function updateOrderStatus(
         return {
           currentStatus: updatedOrder.status,
           paymentStatus: updatedOrder.paymentStatus,
+          customerEmail: order.customerEmail,
+          customerName: order.customerName,
+          orderNumber: order.orderNumber,
         };
       }, PRISMA_TX_OPTIONS);
+
+      // Automated Status Change Email Dispatch
+      if (newStatus === OrderStatus.SHIPPED || newStatus === OrderStatus.DELIVERED) {
+        sendOrderStatusUpdateEmail({
+          toEmail: updatedData.customerEmail,
+          customerName: updatedData.customerName,
+          orderNumber: updatedData.orderNumber,
+          orderId,
+          newStatus,
+        }).catch((err) => {
+          console.error('[ASYNC_STATUS_EMAIL_FAILED]:', err);
+        });
+      }
 
       revalidatePath('/admin/products');
       revalidatePath('/admin/orders');
@@ -1138,7 +1159,13 @@ export async function updateOrderStatus(
       revalidatePath('/shop');
       revalidatePath('/account');
 
-      return { success: true, data: updatedData };
+      return {
+        success: true,
+        data: {
+          currentStatus: updatedData.currentStatus,
+          paymentStatus: updatedData.paymentStatus,
+        },
+      };
     });
   } catch (error) {
     if (isDynamicServerError(error)) throw error;
@@ -1163,6 +1190,7 @@ export async function updateOrderPaymentStatus(
     return await withDbRetry(async () => {
       const order = await prisma.order.findUnique({
         where: { id: orderId },
+        include: { payment: true },
       });
 
       if (!order) {
@@ -1202,6 +1230,96 @@ export async function updateOrderPaymentStatus(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to update payment status.',
+    };
+  }
+}
+
+/**
+ * Admin Action: Direct Stripe Refund
+ */
+export async function refundStripeOrder(
+  orderId: string,
+  reason = 'requested_by_customer'
+): Promise<ActionResponse<{ refundId: string; amountRefunded: number }>> {
+  try {
+    await verifyAdmin();
+
+    return await withDbRetry(async () => {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { payment: true, items: true },
+      });
+
+      if (!order) {
+        return { success: false, error: 'Order not found.' };
+      }
+
+      if (!order.payment?.stripePaymentIntentId) {
+        return {
+          success: false,
+          error: 'No Stripe Payment Intent associated with this order to refund.',
+        };
+      }
+
+      if (order.payment.status === PaymentStatus.REFUNDED) {
+        return { success: false, error: 'This order payment has already been refunded.' };
+      }
+
+      // Execute Stripe API Refund
+      const refund = await stripe.refunds.create({
+        payment_intent: order.payment.stripePaymentIntentId,
+        reason: reason as 'duplicate' | 'fraudulent' | 'requested_by_customer',
+      });
+
+      // Update database status and restock inventory
+      await prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CANCELLED,
+            paymentStatus: PaymentStatus.REFUNDED,
+          },
+        });
+
+        await tx.payment.updateMany({
+          where: { orderId },
+          data: {
+            status: PaymentStatus.REFUNDED,
+          },
+        });
+
+        // Restore reserved inventory back to catalog
+        for (const item of order.items) {
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: {
+              stockQuantity: { increment: item.quantity },
+            },
+          });
+        }
+      }, PRISMA_TX_OPTIONS);
+
+      revalidatePath('/admin/orders');
+      revalidatePath(`/admin/orders/${orderId}`);
+      revalidatePath('/admin/payments');
+      revalidatePath('/admin/payments/transactions');
+      revalidatePath('/admin');
+      revalidatePath('/shop');
+
+      return {
+        success: true,
+        message: `Refund of $${order.total.toFixed(2)} processed successfully via Stripe (${refund.id}).`,
+        data: {
+          refundId: refund.id,
+          amountRefunded: order.total,
+        },
+      };
+    });
+  } catch (error) {
+    console.error('[STRIPE_REFUND_ERROR]:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to process Stripe refund.',
     };
   }
 }

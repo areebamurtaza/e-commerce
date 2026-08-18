@@ -807,3 +807,161 @@ export async function archiveProduct(id: string): Promise<ActionResponse> {
     };
   }
 }
+
+export interface AutocompleteProductItem {
+  id: string;
+  title: string;
+  slug: string;
+  basePrice: number;
+  discountPercentage: number;
+  categoryName: string;
+  imageUrl: string;
+}
+
+/**
+ * Fast predictive search autocomplete for navbar
+ */
+export async function searchProductsAutocomplete(
+  query: string
+): Promise<AutocompleteProductItem[]> {
+  const cleanQuery = (query || '').trim();
+  if (!cleanQuery || cleanQuery.length < 2) return [];
+
+  try {
+    const products = await prisma.product.findMany({
+      where: {
+        OR: [
+          { title: { contains: cleanQuery, mode: 'insensitive' } },
+          { description: { contains: cleanQuery, mode: 'insensitive' } },
+          { category: { name: { contains: cleanQuery, mode: 'insensitive' } } },
+        ],
+      },
+      take: 6,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        basePrice: true,
+        discountPercentage: true,
+        category: {
+          select: { name: true },
+        },
+        images: {
+          where: { isPrimary: true },
+          select: { url: true },
+          take: 1,
+        },
+      },
+    });
+
+    return products.map((p) => ({
+      id: p.id,
+      title: p.title,
+      slug: p.slug,
+      basePrice: p.basePrice,
+      discountPercentage: p.discountPercentage,
+      categoryName: p.category.name,
+      imageUrl: p.images[0]?.url || '/images/pd1.png',
+    }));
+  } catch (error) {
+    console.error('[AUTOCOMPLETE_SEARCH_ERROR]:', error);
+    return [];
+  }
+}
+
+export interface LowStockVariantItem {
+  id: string;
+  productId: string;
+  productTitle: string;
+  sku: string;
+  size: string;
+  colorName: string;
+  stockQuantity: number;
+  imageUrl: string;
+}
+
+/**
+ * Admin: Fetch variants with low stock (<= threshold)
+ */
+export async function getLowStockVariants(
+  threshold = 5
+): Promise<{ success: boolean; variants: LowStockVariantItem[]; error?: string }> {
+  try {
+    await verifyAdmin();
+
+    const variants = await prisma.productVariant.findMany({
+      where: {
+        stockQuantity: { lte: threshold },
+      },
+      orderBy: { stockQuantity: 'asc' },
+      take: 8,
+      include: {
+        product: {
+          select: {
+            title: true,
+            images: {
+              where: { isPrimary: true },
+              select: { url: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    const formatted: LowStockVariantItem[] = variants.map((v) => ({
+      id: v.id,
+      productId: v.productId,
+      productTitle: v.product.title,
+      sku: v.sku,
+      size: v.size,
+      colorName: v.colorName,
+      stockQuantity: v.stockQuantity,
+      imageUrl: v.product.images[0]?.url || '/images/pd1.png',
+    }));
+
+    return { success: true, variants: formatted };
+  } catch (error) {
+    return {
+      success: false,
+      variants: [],
+      error: error instanceof Error ? error.message : 'Failed to fetch low stock variants.',
+    };
+  }
+}
+
+/**
+ * Admin: Quick restock variant
+ */
+export async function quickRestockVariant(
+  variantId: string,
+  quantityToAdd = 20
+): Promise<{ success: boolean; message?: string; newStock?: number; error?: string }> {
+  try {
+    await verifyAdmin();
+
+    return await withDbRetry(async () => {
+      const updated = await prisma.productVariant.update({
+        where: { id: variantId },
+        data: {
+          stockQuantity: { increment: quantityToAdd },
+        },
+      });
+
+      revalidatePath('/admin');
+      revalidatePath('/admin/products');
+      revalidatePath('/shop');
+
+      return {
+        success: true,
+        message: `Restocked ${quantityToAdd} units. Current stock: ${updated.stockQuantity}.`,
+        newStock: updated.stockQuantity,
+      };
+    });
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to restock variant.',
+    };
+  }
+}

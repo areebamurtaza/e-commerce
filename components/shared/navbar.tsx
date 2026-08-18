@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useCartStore } from '@/lib/cart-store';
 import { DEPARTMENT_TAXONOMY } from '@/constants/shop';
+import { PredictiveSearch } from '@/components/shared/predictive-search';
 
 function UserAccountIcon({ className = 'w-6 h-6' }: { className?: string }) {
   return (
@@ -167,27 +168,10 @@ export function Navbar() {
           </Link>
         </nav>
 
-        {/* Desktop Search Bar */}
-        <form
-          onSubmit={handleSearchSubmit}
-          className="hidden sm:flex flex-1 max-w-[577px] h-[48px] bg-[#F0EEED] dark:bg-zinc-900 border border-transparent dark:border-zinc-800 rounded-[62px] px-4 items-center gap-3 focus-within:ring-1 focus-within:ring-black dark:focus-within:ring-white transition-all"
-        >
-          <button
-            type="submit"
-            className="text-black/40 dark:text-zinc-500 hover:text-black dark:hover:text-white transition-colors p-0.5 focus:outline-none cursor-pointer"
-            aria-label="Submit search"
-          >
-            <Search size={20} className="shrink-0" />
-          </button>
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search for products..."
-            className="w-full bg-transparent font-satoshi font-normal text-[16px] text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-zinc-500 focus:outline-none"
-            aria-label="Search products"
-          />
-        </form>
+        {/* Desktop Predictive Search Bar */}
+        <div className="hidden sm:block flex-1 max-w-[577px]">
+          <PredictiveSearch />
+        </div>
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -197,7 +181,7 @@ export function Navbar() {
             className="sm:hidden p-1.5 text-black dark:text-white hover:opacity-70 transition-opacity focus:outline-none cursor-pointer rounded-full"
             aria-label="Toggle search input"
           >
-            <Search size={22} />
+            {isSearchOpen ? <X size={22} /> : <Search size={22} />}
           </button>
 
           <button
@@ -240,6 +224,13 @@ export function Navbar() {
           </Link>
         </div>
       </div>
+
+      {/* Mobile Predictive Search Bar Drawer */}
+      {isSearchOpen && (
+        <div className="sm:hidden px-4 py-3 border-t border-black/10 dark:border-zinc-800 bg-white dark:bg-black animate-in slide-in-from-top-2 duration-150">
+          <PredictiveSearch isMobile onCloseMobile={() => setIsSearchOpen(false)} />
+        </div>
+      )}
 
       {/* Mobile Menu Drawer */}
       {isMobileMenuOpen && (

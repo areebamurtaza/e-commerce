@@ -14,9 +14,11 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { getAdminDashboardAnalytics } from '@/actions/analytics';
+import { getLowStockVariants } from '@/actions/product';
 import { verifyAdmin } from '@/lib/admin-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LowStockAlertCard } from '@/components/admin/low-stock-alert-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +29,10 @@ export const metadata: Metadata = {
 
 export default async function AdminDashboardOverviewPage() {
   await verifyAdmin();
-  const analyticsRes = await getAdminDashboardAnalytics();
+  const [analyticsRes, lowStockRes] = await Promise.all([
+    getAdminDashboardAnalytics(),
+    getLowStockVariants(5),
+  ]);
 
   const data = analyticsRes.data || {
     kpi: {
@@ -103,7 +108,7 @@ export default async function AdminDashboardOverviewPage() {
           <CardContent className="space-y-1">
             <div className="text-2xl font-bold font-mono">{kpi.totalOrders}</div>
             <p className="text-[11px] text-black/50 dark:text-zinc-400">
-              Avg. Order: ${kpi.averageOrderValue.toFixed(2)}
+              Avg order: ${kpi.averageOrderValue.toFixed(2)}
             </p>
           </CardContent>
         </Card>
@@ -121,16 +126,14 @@ export default async function AdminDashboardOverviewPage() {
             <div className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400">
               {kpi.pendingFulfillmentCount}
             </div>
-            <p className="text-[11px] text-black/50 dark:text-zinc-400">
-              Awaiting dispatch/collection
-            </p>
+            <p className="text-[11px] text-black/50 dark:text-zinc-400">Requires packaging & dispatch</p>
           </CardContent>
         </Card>
 
         <Card className="rounded-[20px] border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-bold text-black/60 dark:text-zinc-400 uppercase tracking-wider">
-              Low Stock Variants
+              Low Stock Warnings
             </CardTitle>
             <div className="h-8 w-8 rounded-full bg-rose-100 dark:bg-rose-950 flex items-center justify-center text-rose-600 dark:text-rose-400">
               <AlertTriangle size={16} />
@@ -141,11 +144,14 @@ export default async function AdminDashboardOverviewPage() {
               {kpi.lowStockItemsCount}
             </div>
             <p className="text-[11px] text-black/50 dark:text-zinc-400">
-              Items with $\le 5$ units remaining
+              Items with &le; 5 units remaining
             </p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Critical Low Stock Warnings Section */}
+      <LowStockAlertCard initialVariants={lowStockRes.variants || []} />
 
       {/* Category Performance & Recent Orders Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

@@ -208,16 +208,17 @@ export function ProductReviews({
                     </time>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="text-sm font-bold text-black dark:text-white">
                       {review.author}
                     </h4>
                     {review.isVerified && (
                       <span
-                        title="Verified Buyer"
-                        className="inline-flex items-center text-emerald-600 dark:text-emerald-400"
+                        title="Verified Purchase"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
                       >
-                        <CheckCircle2 className="h-4 w-4 fill-emerald-600 text-white dark:fill-emerald-400 dark:text-black" />
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                        <span>Verified Buyer</span>
                       </span>
                     )}
                   </div>

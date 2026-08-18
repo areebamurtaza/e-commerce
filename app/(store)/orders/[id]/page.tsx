@@ -65,12 +65,29 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
   const isCancelled = order.status === OrderStatus.CANCELLED;
 
+  // Estimated delivery calculation (3-5 business days from order placement)
+  const orderDate = new Date(order.createdAt);
+  const minDeliveryDate = new Date(orderDate);
+  minDeliveryDate.setDate(minDeliveryDate.getDate() + 3);
+  const maxDeliveryDate = new Date(orderDate);
+  maxDeliveryDate.setDate(maxDeliveryDate.getDate() + 5);
+
+  const formattedEstDelivery = `${minDeliveryDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })} – ${maxDeliveryDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })}`;
+
   // Stepper state calculation
   const statusSteps = [
     {
       label: 'Order Placed',
       description: formattedDate,
       isCompleted: true,
+      isActive: order.status === OrderStatus.PENDING,
       icon: CheckCircle2,
     },
     {
@@ -79,12 +96,13 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         order.status === OrderStatus.PROCESSING ||
         order.status === OrderStatus.SHIPPED ||
         order.status === OrderStatus.DELIVERED
-          ? 'Payment Verified'
+          ? 'Payment Confirmed'
           : 'Awaiting Fulfillment',
       isCompleted:
         order.status === OrderStatus.PROCESSING ||
         order.status === OrderStatus.SHIPPED ||
         order.status === OrderStatus.DELIVERED,
+      isActive: order.status === OrderStatus.PROCESSING,
       icon: Clock,
     },
     {
@@ -97,6 +115,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
       isCompleted:
         order.status === OrderStatus.SHIPPED ||
         order.status === OrderStatus.DELIVERED,
+      isActive: order.status === OrderStatus.SHIPPED,
       icon: Truck,
     },
     {
@@ -104,8 +123,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
       description:
         order.status === OrderStatus.DELIVERED
           ? 'Package Received'
-          : 'Est. 3-5 Days',
+          : `Est. ${formattedEstDelivery}`,
       isCompleted: order.status === OrderStatus.DELIVERED,
+      isActive: order.status === OrderStatus.DELIVERED,
       icon: Package,
     },
   ];
@@ -160,11 +180,18 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               </p>
             </div>
 
-            <div className="flex items-center gap-2 bg-white dark:bg-zinc-800 px-4 py-2 rounded-[62px] border border-black/10 dark:border-zinc-700 shrink-0 self-start sm:self-auto">
-              <span className="text-xs text-black/60 dark:text-zinc-400">Order #</span>
-              <span className="font-mono font-bold text-sm text-black dark:text-white">
-                {order.orderNumber}
-              </span>
+            <div className="flex flex-col sm:items-end gap-1.5">
+              <div className="flex items-center gap-2 bg-white dark:bg-zinc-800 px-4 py-2 rounded-[62px] border border-black/10 dark:border-zinc-700 shrink-0 self-start sm:self-auto shadow-xs">
+                <span className="text-xs text-black/60 dark:text-zinc-400">Order #</span>
+                <span className="font-mono font-bold text-sm text-black dark:text-white">
+                  {order.orderNumber}
+                </span>
+              </div>
+              {!isCancelled && order.status !== OrderStatus.DELIVERED && (
+                <span className="text-[11px] font-medium text-black/60 dark:text-zinc-400">
+                  Estimated Arrival: <strong className="text-black dark:text-white">{formattedEstDelivery}</strong>
+                </span>
+              )}
             </div>
           </div>
 
@@ -176,13 +203,15 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 return (
                   <div key={idx} className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <StepIcon
-                        className={`w-5 h-5 shrink-0 ${
+                      <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
                           step.isCompleted
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : 'text-black/30 dark:text-zinc-600'
-                        }`}
-                      />
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-black/5 dark:bg-zinc-800 text-black/30 dark:text-zinc-600'
+                        } ${step.isActive ? 'ring-2 ring-emerald-500/50' : ''}`}
+                      >
+                        <StepIcon className="w-4 h-4 shrink-0" />
+                      </div>
                       <span
                         className={`font-bold text-xs sm:text-sm ${
                           step.isCompleted
