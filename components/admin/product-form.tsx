@@ -3,6 +3,7 @@
 
 import { useState, useTransition, useRef, useEffect, useMemo, ChangeEvent, DragEvent } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   useForm,
@@ -1075,6 +1076,28 @@ export function ProductForm({ categories, initialData }: ProductFormProps) {
                   className="h-9 text-xs rounded-[62px] bg-[#F0F0F0] dark:bg-black border-none text-black dark:text-white"
                   {...register('discountPercentage', { valueAsNumber: true })}
                 />
+              </div>
+
+              {/* Quick Ad / Storewide Coupon Callout */}
+              <div className="pt-2 border-t border-black/10 dark:border-zinc-800">
+                <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/50 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                      <Sparkles size={13} className="text-emerald-600 dark:text-emerald-400" />
+                      Ad & Storewide Coupons
+                    </span>
+                    <Link
+                      href="/admin/coupons"
+                      target="_blank"
+                      className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                    >
+                      Manage <ExternalLink size={10} />
+                    </Link>
+                  </div>
+                  <p className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 leading-tight">
+                    Create overall promo codes (e.g. 20% off for Meta ads) that customers can apply at checkout.
+                  </p>
+                </div>
               </div>
             </div>
           </Card>

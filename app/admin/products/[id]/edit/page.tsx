@@ -24,8 +24,8 @@ export default async function AdminEditProductPage({ params }: AdminEditProductP
 
   if (!productRes.success || !productRes.data) {
     return (
-      <div className="space-y-4 p-8 text-center font-satoshi">
-        <h2 className="text-xl font-bold font-integral uppercase text-black dark:text-white">
+      <div className="space-y-4 p-8 text-center font-admin">
+        <h2 className="text-xl font-extrabold font-admin uppercase text-black dark:text-white">
           Product Not Found
         </h2>
         <p className="text-xs text-black/60 dark:text-zinc-400">

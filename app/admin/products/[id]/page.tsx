@@ -20,8 +20,8 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   if (!result.success || !result.data) {
     return (
-      <div className="space-y-4 p-8 text-center font-satoshi">
-        <h2 className="text-xl font-bold font-integral uppercase text-black dark:text-white">
+      <div className="space-y-4 p-8 text-center font-admin">
+        <h2 className="text-xl font-extrabold font-admin uppercase text-black dark:text-white">
           Product Not Found
         </h2>
         <p className="text-xs text-black/60 dark:text-zinc-400">

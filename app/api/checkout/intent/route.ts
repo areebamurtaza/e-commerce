@@ -4,6 +4,7 @@ import { prisma, withDbRetry } from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { stripe } from '@/lib/stripe';
 import { ORDER_CONFIG, validatePromoCode, PRISMA_TX_OPTIONS } from '@/lib/constants';
+import { validateCouponCode } from '@/actions/coupon';
 import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { z } from 'zod';
 
@@ -162,17 +163,15 @@ export async function POST(req: NextRequest) {
       calculatedSubtotal = Number(calculatedSubtotal.toFixed(2));
       calculatedProductDiscount = Number(calculatedProductDiscount.toFixed(2));
 
-      // Calculate Promo Code Discount
+      // Calculate Promo Code / Dynamic Coupon Discount
       let promoDiscountAmount = 0;
       let appliedPromoCode: string | null = null;
       if (promoCode) {
-        const promoValidation = validatePromoCode(promoCode);
-        if (promoValidation.valid && promoValidation.discountPercent > 0) {
-          appliedPromoCode = promoValidation.code || promoCode.toUpperCase();
-          const discountedSubtotal = Math.max(0, calculatedSubtotal - calculatedProductDiscount);
-          promoDiscountAmount = Number(
-            ((discountedSubtotal * promoValidation.discountPercent) / 100).toFixed(2)
-          );
+        const discountedSubtotal = Math.max(0, calculatedSubtotal - calculatedProductDiscount);
+        const couponValidation = await validateCouponCode(promoCode, discountedSubtotal);
+        if (couponValidation.valid && couponValidation.discountAmount !== undefined) {
+          appliedPromoCode = couponValidation.code || promoCode.toUpperCase();
+          promoDiscountAmount = couponValidation.discountAmount;
         }
       }
 

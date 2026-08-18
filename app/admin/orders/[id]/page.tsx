@@ -23,7 +23,7 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
   const { order } = result;
 
   return (
-    <div className="space-y-6 font-satoshi text-black dark:text-white">
+    <div className="space-y-6 font-admin text-black dark:text-white">
       {/* Top Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
@@ -38,7 +38,7 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
             </Link>
           </Button>
           <div>
-            <h1 className="font-integral text-2xl font-bold uppercase tracking-tight">
+            <h1 className="text-2xl font-extrabold font-admin uppercase tracking-tight text-black dark:text-white">
               {order.orderNumber}
             </h1>
             <p className="text-xs text-black/60 dark:text-zinc-400">

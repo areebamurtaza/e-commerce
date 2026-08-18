@@ -30,6 +30,7 @@ import { getStripe } from '@/lib/stripe-client';
 import { StripePaymentForm } from '@/components/checkout/stripe-payment-form';
 import { ReservationTimer } from '@/components/checkout/reservation-timer';
 import { createCashOnDeliveryOrder } from '@/actions/order';
+import { validateCouponCode } from '@/actions/coupon';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -105,7 +106,7 @@ export default function CheckoutPage() {
   const shipping = items.length === 0 ? 0 : subtotal > 200 ? 0 : deliveryFee;
   const grandTotal = Math.max(0, subtotal - discountAmount + shipping);
 
-  const handleApplyPromo = (e: FormEvent) => {
+  const handleApplyPromo = async (e: FormEvent) => {
     e.preventDefault();
     setPromoError(null);
     setPromoMessage(null);
@@ -116,16 +117,17 @@ export default function CheckoutPage() {
       return;
     }
 
-    const success = applyPromoCode(codeToApply);
-    if (success) {
-      setPromoMessage(`Promo code "${codeToApply.toUpperCase()}" applied successfully!`);
+    const res = await validateCouponCode(codeToApply, subtotal);
+    if (res.valid && res.discountPercentage !== undefined && res.code) {
+      useCartStore.getState().setCustomDiscount(res.code, res.discountPercentage);
+      setPromoMessage(res.message || `Promo code "${res.code}" applied successfully!`);
       setPromoInput('');
       // If payment intent was already loaded, reset it so new price is charged
       if (clientSecret) {
         setClientSecret(null);
       }
     } else {
-      setPromoError('Invalid promo code. Try "SHOP20" or "SAVE30"!');
+      setPromoError(res.error || 'Invalid or expired promo code.');
     }
   };
 

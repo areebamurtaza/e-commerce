@@ -12,6 +12,7 @@ import {
   Receipt,
   LayoutDashboard,
   Store,
+  Tag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ export function AdminSidebar({ mobileOpen, onMobileClose }: AdminSidebarProps) {
     { title: 'Product Catalog', href: '/admin/products', icon: Boxes },
     { title: 'Add Product', href: '/admin/products/new', icon: PackagePlus },
     { title: 'Orders List', href: '/admin/orders', icon: ListOrdered },
+    { title: 'Coupons & Ads', href: '/admin/coupons', icon: Tag },
   ];
 
   const paymentItems = [

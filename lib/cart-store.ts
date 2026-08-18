@@ -16,6 +16,7 @@ export interface CartState {
   updateQuantity: (id: string, delta: number) => void;
   removeItem: (id: string) => void;
   applyPromoCode: (code: string) => boolean;
+  setCustomDiscount: (code: string, discountPercentage: number) => void;
   removePromoCode: () => void;
   clearCart: () => void;
 
@@ -106,6 +107,14 @@ export const useCartStore = create<CartState>()(
         }
         set({ promoCode: '', discountPercentage: 0, isPromoApplied: false });
         return false;
+      },
+
+      setCustomDiscount: (code: string, discountPercentage: number) => {
+        set({
+          promoCode: code.toUpperCase(),
+          discountPercentage,
+          isPromoApplied: true,
+        });
       },
 
       removePromoCode: () => {

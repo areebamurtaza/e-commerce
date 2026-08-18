@@ -129,7 +129,7 @@ export function AdminOrderDetailClient({ order }: OrderDetailClientProps) {
   };
 
   return (
-    <div className="space-y-6 font-satoshi text-black dark:text-white transition-colors">
+    <div className="space-y-6 font-admin text-black dark:text-white transition-colors">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -142,7 +142,7 @@ export function AdminOrderDetailClient({ order }: OrderDetailClientProps) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold font-integral uppercase tracking-tight text-black dark:text-white">
+            <h1 className="text-2xl font-extrabold font-admin uppercase tracking-tight text-black dark:text-white">
               Order {order.orderNumber}
             </h1>
             <p className="text-xs text-black/60 dark:text-zinc-400 mt-0.5">

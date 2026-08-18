@@ -1,7 +1,7 @@
-'use client';
-
 import { useState } from 'react';
 import { Tag, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { validateCouponCode } from '@/actions/coupon';
+import { useCartStore } from '@/lib/cart-store';
 
 interface OrderSummaryProps {
   subtotal: number;
@@ -11,7 +11,7 @@ interface OrderSummaryProps {
   total: number;
   isPromoApplied: boolean;
   promoCode?: string;
-  onApplyPromoCode: (code: string) => boolean;
+  onApplyPromoCode?: (code: string) => boolean;
   onRemovePromoCode?: () => void;
   onCheckout: () => void;
 }
@@ -31,19 +31,20 @@ export function OrderSummary({
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState('');
 
-  const handleApplyPromo = (e: React.FormEvent) => {
+  const handleApplyPromo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!promoInput.trim()) {
       setPromoError('Please enter a promo code.');
       return;
     }
 
-    const success = onApplyPromoCode(promoInput);
-    if (success) {
+    const res = await validateCouponCode(promoInput, subtotal);
+    if (res.valid && res.discountPercentage !== undefined && res.code) {
+      useCartStore.getState().setCustomDiscount(res.code, res.discountPercentage);
       setPromoError('');
       setPromoInput('');
     } else {
-      setPromoError('Invalid promo code. Try "SHOP20" or "SAVE30"!');
+      setPromoError(res.error || 'Invalid or expired promo code.');
     }
   };
 

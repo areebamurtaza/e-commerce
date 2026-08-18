@@ -147,10 +147,10 @@ export function PaymentsOverviewClient({
   };
 
   return (
-    <div className="space-y-6 font-satoshi text-black dark:text-white">
+    <div className="space-y-6 font-admin text-black dark:text-white">
       {/* Top Header */}
       <div>
-        <h1 className="font-integral text-2xl font-bold uppercase tracking-tight text-black dark:text-white">
+        <h1 className="text-2xl font-extrabold font-admin uppercase tracking-tight text-black dark:text-white">
           BALANCES
         </h1>
         <p className="mt-1 text-xs text-black/60 dark:text-zinc-400">
@@ -185,7 +185,7 @@ export function PaymentsOverviewClient({
                       <span className="text-xs font-bold text-black/40 dark:text-zinc-500">
                         {curr === 'USD' ? 'US Dollar' : curr === 'EUR' ? 'Euro' : 'British Pound'}
                       </span>
-                      <p className="mt-1 font-integral text-2xl font-bold text-black dark:text-white">
+                      <p className="mt-1 font-admin text-2xl font-bold text-black dark:text-white">
                         {val.toLocaleString('en-US', {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
