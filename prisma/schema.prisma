@@ -170,6 +170,9 @@ model Order {
   total           Float
   status          OrderStatus   @default(PENDING)
   paymentStatus   PaymentStatus @default(PENDING)
+  returnRequested Boolean       @default(false)
+  returnReason    String?
+  returnNotes     String?
   expiresAt       DateTime?     // 30-minute checkout reservation window
   items           OrderItem[]
   payment         Payment?

@@ -43,6 +43,8 @@ interface OrderRowItem {
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   paymentMethod: string;
+  returnRequested?: boolean;
+  returnReason?: string | null;
   itemsCount: number;
   createdAt: Date;
 }
@@ -272,7 +274,17 @@ export function OrdersListView({
                         {row.paymentMethod}
                       </span>
                     </td>
-                    <td className="p-3">{renderStatusBadge(row.status)}</td>
+                    <td className="p-3">
+                      <div className="flex flex-col gap-1 items-start">
+                        {renderStatusBadge(row.status)}
+                        {row.returnRequested && row.paymentStatus !== 'REFUNDED' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            <span>Return Req</span>
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
                         {/* Status Dispatcher Dropdown */}

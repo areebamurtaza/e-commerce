@@ -19,6 +19,8 @@ import {
 import { getOrderById } from '@/actions/order';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { OrderTrackingActions } from '@/components/checkout/order-tracking-actions';
+import { CustomerCancelDialog } from '@/components/order/customer-cancel-dialog';
+import { CustomerReturnDialog } from '@/components/order/customer-return-dialog';
 import { PrintableInvoice } from '@/components/invoice/printable-invoice';
 
 interface OrderDetailPageProps {
@@ -136,15 +138,42 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         {/* Navigation & Header Actions Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <Link
-            href="/account"
+            href="/orders"
             className="inline-flex items-center gap-2 font-satoshi text-sm text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
           >
             <ArrowLeft size={16} />
-            <span>Back to Account Orders</span>
+            <span>Back to My Orders</span>
           </Link>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Customer Cancel Button */}
+            {(order.status === OrderStatus.PENDING || order.status === OrderStatus.PROCESSING) && (
+              <CustomerCancelDialog
+                orderId={order.id}
+                orderNumber={order.orderNumber}
+                total={order.total}
+                paymentStatus={order.paymentStatus}
+                createdAt={order.createdAt}
+              />
+            )}
+
+            {/* Customer Return Button or Status */}
+            {order.status === OrderStatus.DELIVERED && order.returnRequested && order.paymentStatus !== PaymentStatus.REFUNDED && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+                <span>Return Requested (Pending Review)</span>
+              </span>
+            )}
+
+            {order.status === OrderStatus.DELIVERED && !order.returnRequested && order.paymentStatus !== PaymentStatus.REFUNDED && (
+              <CustomerReturnDialog
+                orderId={order.id}
+                orderNumber={order.orderNumber}
+                total={order.total}
+                paymentStatus={order.paymentStatus}
+              />
+            )}
+
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
               <ShieldCheck size={16} />
               <span>Verified Purchase</span>
             </div>

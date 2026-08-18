@@ -59,12 +59,21 @@ function isDynamicServerError(err: unknown): boolean {
 export interface GetUserOrdersParams {
   userId?: string;
   email?: string;
+  page?: number;
+  limit?: number;
+  status?: OrderStatus | 'ALL';
 }
 
 export interface GetUserOrdersResponse {
   success: boolean;
   data: DbOrderWithItems[];
   orders: DbOrderWithItems[];
+  pagination?: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
   error?: string;
 }
 
@@ -91,6 +100,8 @@ export interface AdminOrderListResponse {
     status: OrderStatus;
     paymentStatus: PaymentStatus;
     paymentMethod: string;
+    returnRequested: boolean;
+    returnReason?: string | null;
     itemsCount: number;
     createdAt: Date;
   }>;
@@ -739,12 +750,17 @@ export async function getUserOrders(
     const { userId: sessionUserId } = await auth().catch(() => ({ userId: null }));
     const targetUserId = params?.userId || sessionUserId;
     const targetEmail = params?.email;
+    const page = Math.max(1, params?.page || 1);
+    const limit = Math.max(1, Math.min(50, params?.limit || 5));
+    const skip = (page - 1) * limit;
+    const filterStatus = params?.status;
 
     if (!targetUserId && !targetEmail) {
       return {
         success: false,
         data: [],
         orders: [],
+        pagination: { total: 0, page: 1, limit, totalPages: 1 },
         error: 'Authentication required.',
       };
     }
@@ -762,34 +778,52 @@ export async function getUserOrders(
         });
       }
 
-      const orders = await prisma.order.findMany({
-        where: {
-          OR: orConditions,
-        },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          payment: true,
-          user: true,
-          items: {
-            include: {
-              variant: {
-                include: {
-                  product: {
-                    include: {
-                      images: true,
+      const where: Prisma.OrderWhereInput = {
+        AND: [
+          { OR: orConditions },
+          filterStatus && filterStatus !== 'ALL' ? { status: filterStatus } : {},
+        ],
+      };
+
+      const [total, orders] = await Promise.all([
+        prisma.order.count({ where }),
+        prisma.order.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            payment: true,
+            user: true,
+            items: {
+              include: {
+                variant: {
+                  include: {
+                    product: {
+                      include: {
+                        images: true,
+                      },
                     },
                   },
                 },
               },
             },
           },
-        },
-      });
+        }),
+      ]);
+
+      const totalPages = Math.max(1, Math.ceil(total / limit));
 
       return {
         success: true,
         data: orders,
         orders,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+        },
       };
     });
   } catch (error) {
@@ -800,6 +834,185 @@ export async function getUserOrders(
       data: [],
       orders: [],
       error: error instanceof Error ? error.message : 'Failed to retrieve orders.',
+    };
+  }
+}
+
+/**
+ * Customer Action: Cancel an order within 30 minutes of placement (while PENDING or PROCESSING)
+ */
+export async function cancelCustomerOrder(
+  orderId: string,
+  reason = 'Customer requested cancellation'
+): Promise<ActionResponse<{ orderId: string }>> {
+  try {
+    const { userId } = await auth().catch(() => ({ userId: null }));
+
+    return await withDbRetry(async () => {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: true,
+          payment: true,
+        },
+      });
+
+      if (!order) {
+        return { success: false, error: 'Order not found.' };
+      }
+
+      // Security check: verify ownership if authenticated
+      if (userId && order.userId && order.userId !== userId) {
+        return { success: false, error: 'Unauthorized to cancel this order.' };
+      }
+
+      // Status check: only PENDING or PROCESSING can be cancelled before shipping
+      if (order.status !== OrderStatus.PENDING && order.status !== OrderStatus.PROCESSING) {
+        return {
+          success: false,
+          error: `Orders with status "${order.status}" cannot be cancelled. Once shipped, please use Return/Refund upon delivery.`,
+        };
+      }
+
+      // Time window check: 30 minutes from creation
+      const orderTime = new Date(order.createdAt).getTime();
+      const now = Date.now();
+      const elapsedMinutes = (now - orderTime) / (1000 * 60);
+      if (elapsedMinutes > 30 && order.status === OrderStatus.PROCESSING) {
+        return {
+          success: false,
+          error: 'The 30-minute cancellation window has passed. The order is being prepared for dispatch.',
+        };
+      }
+
+      // Process Stripe refund if paid by card
+      let paymentStatusUpdate: PaymentStatus = order.paymentStatus;
+      if (
+        order.paymentStatus === PaymentStatus.SUCCEEDED &&
+        order.payment?.stripePaymentIntentId
+      ) {
+        try {
+          await stripe.refunds.create({
+            payment_intent: order.payment.stripePaymentIntentId,
+            reason: 'requested_by_customer',
+          });
+          paymentStatusUpdate = PaymentStatus.REFUNDED;
+        } catch (stripeErr) {
+          console.error('[STRIPE_CANCEL_REFUND_ERROR]:', stripeErr);
+        }
+      }
+
+      // Atomically cancel and restock inventory
+      await prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            status: OrderStatus.CANCELLED,
+            paymentStatus: paymentStatusUpdate,
+          },
+        });
+
+        for (const item of order.items) {
+          if (item.variantId) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: {
+                stockQuantity: { increment: item.quantity },
+              },
+            });
+          }
+        }
+      }, PRISMA_TX_OPTIONS);
+
+      revalidatePath('/orders');
+      revalidatePath(`/orders/${orderId}`);
+      revalidatePath('/admin/orders');
+
+      return {
+        success: true,
+        message: 'Order has been cancelled successfully and payment refunded.',
+        data: { orderId: order.id },
+      };
+    });
+  } catch (error) {
+    if (isDynamicServerError(error)) throw error;
+    console.error('[CANCEL_CUSTOMER_ORDER_ERROR]:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to cancel order.',
+    };
+  }
+}
+
+/**
+ * Customer Action: Request Return / Refund after order is DELIVERED
+ */
+export async function requestCustomerReturn(
+  orderId: string,
+  reason: string,
+  notes?: string
+): Promise<ActionResponse<{ orderId: string }>> {
+  try {
+    const { userId } = await auth().catch(() => ({ userId: null }));
+
+    return await withDbRetry(async () => {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: true,
+          payment: true,
+        },
+      });
+
+      if (!order) {
+        return { success: false, error: 'Order not found.' };
+      }
+
+      if (userId && order.userId && order.userId !== userId) {
+        return { success: false, error: 'Unauthorized to request return for this order.' };
+      }
+
+      if (order.status !== OrderStatus.DELIVERED) {
+        return {
+          success: false,
+          error: 'Return and refund requests can only be initiated after delivery.',
+        };
+      }
+
+      if (order.returnRequested) {
+        return {
+          success: false,
+          error: 'A return request for this order is already pending admin review.',
+        };
+      }
+
+      // Record return request for Admin approval
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          returnRequested: true,
+          returnReason: reason,
+          returnNotes: notes?.trim() || null,
+        },
+      });
+
+      revalidatePath('/orders');
+      revalidatePath(`/orders/${orderId}`);
+      revalidatePath('/admin/orders');
+      revalidatePath(`/admin/orders/${orderId}`);
+
+      return {
+        success: true,
+        message: 'Return request submitted successfully. Our team will review and process your refund shortly.',
+        data: { orderId: order.id },
+      };
+    });
+  } catch (error) {
+    if (isDynamicServerError(error)) throw error;
+    console.error('[REQUEST_CUSTOMER_RETURN_ERROR]:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to process return request.',
     };
   }
 }
@@ -939,6 +1152,8 @@ export async function getAdminOrders(
         status: o.status,
         paymentStatus: o.paymentStatus,
         paymentMethod: o.payment?.paymentMethod ?? 'STRIPE',
+        returnRequested: o.returnRequested,
+        returnReason: o.returnReason,
         itemsCount: o.items.reduce((acc, curr) => acc + curr.quantity, 0),
         createdAt: o.createdAt,
       }));

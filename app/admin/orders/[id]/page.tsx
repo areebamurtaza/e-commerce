@@ -7,7 +7,7 @@ import { OrderStatusController } from '@/components/admin/order-status-controlle
 import { RefundDialog } from '@/components/admin/refund-dialog';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, User, MapPin, CreditCard, PackageCheck } from 'lucide-react';
+import { ArrowLeft, User, MapPin, CreditCard, PackageCheck, AlertCircle } from 'lucide-react';
 import { PaymentStatus } from '@prisma/client';
 
 interface OrderDetailPageProps {
@@ -70,6 +70,29 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
           />
         </div>
       </div>
+
+      {/* Return Request Banner */}
+      {order.returnRequested && order.paymentStatus !== PaymentStatus.REFUNDED && (
+        <div className="p-4 rounded-[16px] bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900/60 flex items-start gap-3.5 text-amber-900 dark:text-amber-200">
+          <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1 text-xs">
+            <p className="font-bold text-sm text-amber-950 dark:text-amber-100">
+              Customer Return & Refund Request Pending Approval
+            </p>
+            <p>
+              <strong>Customer Reason:</strong> {order.returnReason || 'Not specified'}
+            </p>
+            {order.returnNotes && (
+              <p>
+                <strong>Customer Notes:</strong> {order.returnNotes}
+              </p>
+            )}
+            <p className="text-[11px] text-amber-700 dark:text-amber-300/80 pt-1">
+              Click the &quot;Refund Order&quot; button in the header action bar to approve the return, execute the Stripe refund, and restock inventory.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-12 items-start">
         {/* Order Items Table (8 cols) */}

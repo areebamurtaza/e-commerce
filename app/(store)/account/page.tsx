@@ -31,6 +31,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { InvoiceModal } from '@/components/account/invoice-modal';
 import { AddressModal } from '@/components/account/address-modal';
+import { CustomerCancelDialog } from '@/components/order/customer-cancel-dialog';
+import { CustomerReturnDialog } from '@/components/order/customer-return-dialog';
 import { getUserOrders, DbOrderWithItems } from '@/actions/order';
 import {
   getUserAddresses,
@@ -38,7 +40,7 @@ import {
   setDefaultUserAddress,
   deleteUserAddress,
 } from '@/actions/user';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 
 type AccountTab = 'orders' | 'profile' | 'addresses';
 
@@ -53,10 +55,13 @@ export default function MyAccountPage() {
   const [isInvoiceOpen, setIsInvoiceOpen] = useState<boolean>(false);
   const [trackingSearchQuery, setTrackingSearchQuery] = useState<string>('');
 
-  // Orders State
+  // Orders State & Pagination
   const [orders, setOrders] = useState<DbOrderWithItems[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(true);
   const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalOrdersCount, setTotalOrdersCount] = useState<number>(0);
 
   // Address State
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -83,28 +88,41 @@ export default function MyAccountPage() {
   }, [isUserLoaded, user]);
 
   // Fetch Live Orders
-  const fetchOrders = useCallback(async () => {
-    if (!isUserLoaded) return;
-    setIsLoadingOrders(true);
-    setOrdersError(null);
+  const fetchOrders = useCallback(
+    async (pageToFetch = 1) => {
+      if (!isUserLoaded) return;
+      setIsLoadingOrders(true);
+      setOrdersError(null);
 
-    try {
-      const userEmail = user?.primaryEmailAddress?.emailAddress;
-      const userId = user?.id;
+      try {
+        const userEmail = user?.primaryEmailAddress?.emailAddress;
+        const userId = user?.id;
 
-      const result = await getUserOrders({ userId, email: userEmail });
-      if (result.success && result.data) {
-        setOrders(result.data);
-      } else {
-        setOrdersError(result.error || 'Unable to retrieve order history.');
+        const result = await getUserOrders({
+          userId,
+          email: userEmail,
+          page: pageToFetch,
+          limit: 4,
+        });
+        if (result.success && result.data) {
+          setOrders(result.data);
+          if (result.pagination) {
+            setTotalPages(result.pagination.totalPages);
+            setTotalOrdersCount(result.pagination.total);
+            setCurrentPage(result.pagination.page);
+          }
+        } else {
+          setOrdersError(result.error || 'Unable to retrieve order history.');
+        }
+      } catch (err) {
+        console.error('[ACCOUNT_FETCH_ORDERS_ERROR]:', err);
+        setOrdersError('Failed to establish connection to database.');
+      } finally {
+        setIsLoadingOrders(false);
       }
-    } catch (err) {
-      console.error('[ACCOUNT_FETCH_ORDERS_ERROR]:', err);
-      setOrdersError('Failed to establish connection to database.');
-    } finally {
-      setIsLoadingOrders(false);
-    }
-  }, [isUserLoaded, user]);
+    },
+    [isUserLoaded, user]
+  );
 
   // Fetch Live Saved Addresses
   const fetchAddresses = useCallback(async () => {
@@ -323,7 +341,7 @@ export default function MyAccountPage() {
 
                   <button
                     type="button"
-                    onClick={fetchOrders}
+                    onClick={() => fetchOrders(currentPage)}
                     disabled={isLoadingOrders}
                     title="Refresh orders"
                     className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-zinc-800 text-black/60 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
@@ -383,6 +401,17 @@ export default function MyAccountPage() {
                                 >
                                   {order.status}
                                 </span>
+                                {order.returnRequested &&
+                                  order.paymentStatus !== PaymentStatus.REFUNDED && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                      <span>Return Requested</span>
+                                    </span>
+                                  )}
+                                {order.paymentStatus === PaymentStatus.REFUNDED && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                    <span>Refunded</span>
+                                  </span>
+                                )}
                               </div>
                               <span className="text-xs text-black/50 dark:text-zinc-400 block">
                                 Placed on {orderDate} • {order.payment?.paymentMethod || 'CARD'} (
@@ -390,8 +419,40 @@ export default function MyAccountPage() {
                               </span>
                             </div>
 
-                            {/* Dual CTAs: Track Shipment & View Invoice */}
-                            <div className="flex items-center gap-2">
+                            {/* Action CTAs: Cancel, Return, Invoice, Track */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* Cancel Order */}
+                              {(order.status === OrderStatus.PENDING ||
+                                order.status === OrderStatus.PROCESSING) && (
+                                <CustomerCancelDialog
+                                  orderId={order.id}
+                                  orderNumber={order.orderNumber}
+                                  total={order.total}
+                                  paymentStatus={order.paymentStatus}
+                                  createdAt={order.createdAt}
+                                />
+                              )}
+
+                              {/* Return / Refund */}
+                              {order.status === OrderStatus.DELIVERED &&
+                                order.returnRequested &&
+                                order.paymentStatus !== PaymentStatus.REFUNDED && (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+                                    <span>Return Requested (Pending Review)</span>
+                                  </span>
+                                )}
+
+                              {order.status === OrderStatus.DELIVERED &&
+                                !order.returnRequested &&
+                                order.paymentStatus !== PaymentStatus.REFUNDED && (
+                                  <CustomerReturnDialog
+                                    orderId={order.id}
+                                    orderNumber={order.orderNumber}
+                                    total={order.total}
+                                    paymentStatus={order.paymentStatus}
+                                  />
+                                )}
+
                               <Button
                                 type="button"
                                 variant="outline"
@@ -473,6 +534,35 @@ export default function MyAccountPage() {
                         </div>
                       );
                     })}
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-4 border-t border-black/10 dark:border-zinc-800">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={currentPage <= 1 || isLoadingOrders}
+                          onClick={() => fetchOrders(currentPage - 1)}
+                          className="rounded-[62px] text-xs h-8.5 px-4 font-bold"
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-xs font-mono font-bold text-black/60 dark:text-zinc-400">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={currentPage >= totalPages || isLoadingOrders}
+                          onClick={() => fetchOrders(currentPage + 1)}
+                          className="rounded-[62px] text-xs h-8.5 px-4 font-bold"
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="w-full py-16 px-6 flex flex-col items-center justify-center text-center gap-4 bg-[#F0F0F0]/50 dark:bg-zinc-900/50 rounded-[20px] border border-black/10 dark:border-zinc-800">
