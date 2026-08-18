@@ -60,29 +60,29 @@ export function CartItemCard({
           <button
             type="button"
             onClick={() => onRemoveItem(item.id)}
-            className="text-[#FF3333] hover:opacity-75 transition-opacity p-1 focus:outline-none cursor-pointer"
+            className="text-[#FF3333] hover:text-rose-700 hover:scale-115 active:scale-90 transition-all duration-150 p-1 focus:outline-none cursor-pointer"
             aria-label={`Remove ${item.title} from cart`}
           >
             <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
-          <div className="w-[105px] sm:w-[126px] h-[36px] sm:h-[44px] bg-[#F0F0F0] rounded-[62px] flex items-center justify-between px-3 sm:px-4 shrink-0">
+          <div className="w-[105px] sm:w-[126px] h-[36px] sm:h-[44px] bg-[#F0F0F0] rounded-[62px] flex items-center justify-between px-2.5 sm:px-3.5 shrink-0 shadow-2xs">
             <button
               type="button"
               onClick={() => onUpdateQuantity(item.id, -1)}
-              className="text-black hover:opacity-60 transition-opacity disabled:opacity-30 focus:outline-none cursor-pointer"
+              className="p-1 rounded-full text-black hover:bg-black/10 active:scale-75 transition-all duration-150 disabled:opacity-30 focus:outline-none cursor-pointer"
               disabled={item.quantity <= 1}
               aria-label="Decrease quantity"
             >
               <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
-            <span className="font-satoshi font-medium text-[14px] sm:text-[16px] text-black">
+            <span className="font-satoshi font-bold text-[14px] sm:text-[16px] text-black select-none">
               {item.quantity}
             </span>
             <button
               type="button"
               onClick={() => onUpdateQuantity(item.id, 1)}
-              className="text-black hover:opacity-60 transition-opacity focus:outline-none cursor-pointer"
+              className="p-1 rounded-full text-black hover:bg-black/10 active:scale-75 transition-all duration-150 focus:outline-none cursor-pointer"
               aria-label="Increase quantity"
             >
               <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />

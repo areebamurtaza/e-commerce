@@ -48,6 +48,8 @@ export interface GetProductsParams {
   limit?: number;
   isFeatured?: boolean;
   isNewArrival?: boolean;
+  hasDiscount?: boolean;
+  discount?: boolean | string;
 }
 
 export interface GetProductsResult {
@@ -210,6 +212,14 @@ export async function getProducts(params: GetProductsParams = {}): Promise<GetPr
 
     if (isFeatured !== undefined) andConditions.push({ isFeatured });
     if (isNewArrival !== undefined) andConditions.push({ isNewArrival });
+    if (
+      params.hasDiscount === true ||
+      params.discount === true ||
+      params.discount === 'true' ||
+      params.discount === '1'
+    ) {
+      andConditions.push({ discountPercentage: { gt: 0 } });
+    }
 
     const where: Prisma.ProductWhereInput =
       andConditions.length > 0 ? { AND: andConditions } : {};

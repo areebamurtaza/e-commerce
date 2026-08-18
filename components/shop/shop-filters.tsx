@@ -70,12 +70,15 @@ export function ShopFilters({ onApplyMobileClose }: ShopFiltersProps) {
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(isSelected ? '' : cat)}
-              className={`flex items-center justify-between text-left font-satoshi text-[16px] leading-[22px] transition-colors cursor-pointer ${
+              className={`group flex items-center justify-between text-left font-satoshi text-[16px] leading-[22px] transition-all duration-200 hover:translate-x-1 cursor-pointer ${
                 isSelected ? 'font-bold text-black' : 'text-black/60 hover:text-black'
               }`}
             >
               <span>{cat}</span>
-              <ChevronRight size={16} className="text-black/40" />
+              <ChevronRight
+                size={16}
+                className="text-black/40 group-hover:text-black group-hover:translate-x-0.5 transition-all duration-200"
+              />
             </button>
           );
         })}
@@ -96,12 +99,12 @@ export function ShopFilters({ onApplyMobileClose }: ShopFiltersProps) {
           step="10"
           value={priceRange}
           onChange={(e) => setPriceRange(Number(e.target.value))}
-          className="w-full accent-black cursor-pointer"
+          className="w-full accent-black cursor-pointer transition-all"
         />
 
-        <div className="flex items-center justify-between font-satoshi font-medium text-[14px] text-black">
+        <div className="flex items-center justify-between font-satoshi font-medium text-[14px] text-black font-mono">
           <span>$50</span>
-          <span>${priceRange}</span>
+          <span className="font-bold">${priceRange}</span>
         </div>
       </div>
 
@@ -120,14 +123,16 @@ export function ShopFilters({ onApplyMobileClose }: ShopFiltersProps) {
                 onClick={() => setSelectedColor(isSelected ? '' : col.name)}
                 style={{ backgroundColor: col.hex }}
                 aria-label={`Filter by ${col.name}`}
-                className={`w-[37px] h-[37px] rounded-full flex items-center justify-center border transition-transform active:scale-95 cursor-pointer ${
+                className={`w-[37px] h-[37px] rounded-full flex items-center justify-center border transition-all duration-150 hover:scale-115 active:scale-90 shadow-2xs cursor-pointer ${
                   col.hex === '#FFFFFF' ? 'border-black/20' : 'border-transparent'
                 }`}
               >
                 {isSelected && (
                   <Check
                     size={16}
-                    className={col.hex === '#FFFFFF' ? 'text-black' : 'text-white'}
+                    className={`animate-in zoom-in-75 duration-150 ${
+                      col.hex === '#FFFFFF' ? 'text-black' : 'text-white'
+                    }`}
                   />
                 )}
               </button>
@@ -149,9 +154,9 @@ export function ShopFilters({ onApplyMobileClose }: ShopFiltersProps) {
                 key={size}
                 type="button"
                 onClick={() => setSelectedSize(isSelected ? '' : size)}
-                className={`h-[39px] px-5 rounded-[62px] font-satoshi text-[14px] leading-[19px] transition-all cursor-pointer ${
+                className={`h-[39px] px-5 rounded-[62px] font-satoshi text-[14px] leading-[19px] transition-all duration-150 hover:scale-105 active:scale-95 cursor-pointer ${
                   isSelected
-                    ? 'bg-black text-white font-medium'
+                    ? 'bg-black text-white font-medium shadow-xs'
                     : 'bg-[#F0F0F0] text-black/60 font-normal hover:bg-black/10'
                 }`}
               >
@@ -174,12 +179,15 @@ export function ShopFilters({ onApplyMobileClose }: ShopFiltersProps) {
               key={style}
               type="button"
               onClick={() => setSelectedStyle(isSelected ? '' : style)}
-              className={`flex items-center justify-between text-left font-satoshi text-[16px] leading-[22px] transition-colors cursor-pointer ${
+              className={`group flex items-center justify-between text-left font-satoshi text-[16px] leading-[22px] transition-all duration-200 hover:translate-x-1 cursor-pointer ${
                 isSelected ? 'font-bold text-black' : 'text-black/60 hover:text-black'
               }`}
             >
               <span>{style}</span>
-              <ChevronRight size={16} className="text-black/40" />
+              <ChevronRight
+                size={16}
+                className="text-black/40 group-hover:text-black group-hover:translate-x-0.5 transition-all duration-200"
+              />
             </button>
           );
         })}
@@ -189,7 +197,7 @@ export function ShopFilters({ onApplyMobileClose }: ShopFiltersProps) {
       <button
         type="button"
         onClick={applyFilters}
-        className="w-full h-[48px] bg-black text-white font-satoshi font-medium text-[14px] leading-[19px] rounded-[62px] hover:bg-black/80 active:scale-98 transition-all cursor-pointer"
+        className="w-full h-[48px] bg-black text-white font-satoshi font-medium text-[14px] leading-[19px] rounded-[62px] hover:bg-black/85 hover:scale-[1.01] active:scale-95 shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer"
       >
         Apply Filter
       </button>

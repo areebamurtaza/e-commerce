@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { REVIEWS } from '@/lib/mock-data';
 import { RatingStars } from '@/components/shared/rating-stars';
+import { ScrollReveal } from '@/components/shared/scroll-reveal';
 
 export function ReviewsSection() {
   // Mobile index shifts 1 card at a time across all reviews (0 to REVIEWS.length - 1)
@@ -25,12 +26,12 @@ export function ReviewsSection() {
   return (
     <section className="w-full bg-white pb-12 sm:pb-20 xl:pb-24 overflow-x-hidden">
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px] relative">
-        
-        {/* Header Section: Title & Controls */}
-        <div className="flex items-center justify-between mb-6 sm:mb-10">
-          <h2 className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[36px] sm:leading-[48px] xl:leading-[58px] text-black uppercase tracking-tight">
-            OUR HAPPY CUSTOMERS
-          </h2>
+        <ScrollReveal direction="up" delay={50} distance={20}>
+          {/* Header Section: Title & Controls */}
+          <div className="flex items-center justify-between mb-6 sm:mb-10">
+            <h2 className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[36px] sm:leading-[48px] xl:leading-[58px] text-black uppercase tracking-tight">
+              OUR HAPPY CUSTOMERS
+            </h2>
 
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             <button
@@ -153,6 +154,7 @@ export function ReviewsSection() {
             })}
           </div>
         </div>
+        </ScrollReveal>
 
       </div>
     </section>

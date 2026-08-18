@@ -153,7 +153,7 @@ export function ProductInfo({
                   onClick={() => setSelectedColor(color)}
                   style={{ backgroundColor: color.hex }}
                   aria-label={`Select color ${color.name}`}
-                  className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-transform active:scale-95 focus:outline-none cursor-pointer border ${
+                  className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-115 active:scale-90 focus:outline-none cursor-pointer border shadow-xs ${
                     color.hex.toUpperCase() === '#FFFFFF'
                       ? 'border-black/20 dark:border-zinc-700'
                       : 'border-transparent'
@@ -161,7 +161,7 @@ export function ProductInfo({
                 >
                   {isSelected && (
                     <Check
-                      className={`w-4 h-4 stroke-[3] ${
+                      className={`w-4 h-4 stroke-[3] animate-in zoom-in-75 duration-150 ${
                         color.hex.toUpperCase() === '#FFFFFF' ? 'text-black' : 'text-white'
                       }`}
                     />
@@ -182,7 +182,7 @@ export function ProductInfo({
             </span>
             {activeVariant && (
               <span
-                className={`text-xs font-bold ${
+                className={`text-xs font-bold transition-colors ${
                   activeVariant.stockQuantity < 5
                     ? 'text-amber-600 dark:text-amber-400'
                     : 'text-black/40 dark:text-zinc-500'
@@ -203,9 +203,9 @@ export function ProductInfo({
                   key={size}
                   type="button"
                   onClick={() => setSelectedSize(size)}
-                  className={`h-[42px] px-5 rounded-[62px] font-satoshi text-[14px] font-medium transition-all duration-200 cursor-pointer ${
+                  className={`h-[42px] px-5 rounded-[62px] font-satoshi text-[14px] font-medium transition-all duration-150 hover:scale-105 active:scale-95 cursor-pointer ${
                     isSelected
-                      ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
+                      ? 'bg-black dark:bg-white text-white dark:text-black shadow-xs'
                       : 'bg-[#F0F0F0] dark:bg-zinc-900 text-black/60 dark:text-zinc-400 hover:bg-black/10 dark:hover:bg-zinc-800'
                   }`}
                 >
@@ -219,8 +219,8 @@ export function ProductInfo({
 
       {/* Stock Alert Warning */}
       {isOutOfStock && (
-        <div className="mb-4 p-3 rounded-[12px] bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 flex items-center gap-2 text-rose-600 dark:text-rose-400 text-xs font-medium">
-          <AlertCircle size={16} />
+        <div className="mb-4 p-3 rounded-[12px] bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 flex items-center gap-2 text-rose-600 dark:text-rose-400 text-xs font-medium animate-in fade-in zoom-in-95 duration-200">
+          <AlertCircle size={16} className="shrink-0" />
           <span>The selected size and color combination is currently sold out.</span>
         </div>
       )}
@@ -228,23 +228,23 @@ export function ProductInfo({
       {/* Action Row */}
       <div className="flex items-center gap-3 sm:gap-4 w-full">
         {/* Quantity Stepper */}
-        <div className="w-[120px] sm:w-[140px] h-[48px] bg-[#F0F0F0] dark:bg-zinc-900 rounded-[62px] flex items-center justify-between px-4 shrink-0">
+        <div className="w-[120px] sm:w-[140px] h-[48px] bg-[#F0F0F0] dark:bg-zinc-900 rounded-[62px] flex items-center justify-between px-4 shrink-0 shadow-xs">
           <button
             type="button"
             onClick={handleDecrement}
-            className="p-1 text-black dark:text-white hover:opacity-60 transition-opacity focus:outline-none disabled:opacity-30 cursor-pointer"
+            className="p-1.5 rounded-full text-black dark:text-white hover:bg-black/10 dark:hover:bg-zinc-800 active:scale-75 transition-all duration-150 focus:outline-none disabled:opacity-30 cursor-pointer"
             disabled={quantity <= 1 || isOutOfStock}
             aria-label="Decrease quantity"
           >
             <Minus size={16} />
           </button>
-          <span className="font-satoshi font-bold text-[15px] sm:text-[16px] text-black dark:text-white">
+          <span className="font-satoshi font-bold text-[15px] sm:text-[16px] text-black dark:text-white select-none">
             {quantity}
           </span>
           <button
             type="button"
             onClick={handleIncrement}
-            className="p-1 text-black dark:text-white hover:opacity-60 transition-opacity focus:outline-none disabled:opacity-30 cursor-pointer"
+            className="p-1.5 rounded-full text-black dark:text-white hover:bg-black/10 dark:hover:bg-zinc-800 active:scale-75 transition-all duration-150 focus:outline-none disabled:opacity-30 cursor-pointer"
             disabled={
               isOutOfStock ||
               (activeVariant ? quantity >= activeVariant.stockQuantity : false)
@@ -260,15 +260,15 @@ export function ProductInfo({
           type="button"
           disabled={isOutOfStock}
           onClick={handleAddToCart}
-          className={`flex-1 h-[48px] font-satoshi font-bold text-[14px] sm:text-[15px] rounded-[62px] flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+          className={`flex-1 h-[48px] font-satoshi font-bold text-[14px] sm:text-[15px] rounded-[62px] flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed ${
             isAdded
-              ? 'bg-emerald-600 text-white'
-              : 'bg-black dark:bg-white text-white dark:text-black hover:bg-black/80 dark:hover:bg-white/80 active:scale-98'
+              ? 'bg-emerald-600 text-white animate-badge-pop'
+              : 'bg-black dark:bg-white text-white dark:text-black hover:bg-black/80 dark:hover:bg-white/80 active:scale-95'
           }`}
         >
           {isAdded ? (
             <>
-              <CheckCircle2 size={18} />
+              <CheckCircle2 size={18} className="animate-in zoom-in duration-200" />
               <span>Added to Cart!</span>
             </>
           ) : isOutOfStock ? (

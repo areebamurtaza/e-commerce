@@ -1,9 +1,9 @@
-// components/product/product-tabs.tsx
 'use client';
 
 import { useState } from 'react';
 import { ProductReviews } from '@/components/product/product-reviews';
 import { ReviewWithUserData, ReviewAggregateStats } from '@/actions/review';
+import { ChevronDown } from 'lucide-react';
 
 export type { ReviewWithUserData as UIReview };
 
@@ -19,6 +19,25 @@ export interface ProductTabsProps {
 
 type TabType = 'details' | 'reviews' | 'faqs';
 
+const PRODUCT_FAQS = [
+  {
+    q: 'What is the return & exchange policy?',
+    a: 'We offer a 30-day hassle-free return and exchange policy. Items must be unworn, in original condition, and with all tags attached.',
+  },
+  {
+    q: 'How do I choose the correct size?',
+    a: 'Our garments fit true to standard US/EU sizing. If you prefer a relaxed or streetwear oversized fit, we suggest selecting one size up.',
+  },
+  {
+    q: 'What are the care and washing instructions?',
+    a: 'Machine wash cold with like colors inside out. Tumble dry low or hang dry to preserve garment shape and longevity.',
+  },
+  {
+    q: 'How long does shipping take?',
+    a: 'Orders are processed within 24-48 hours. Standard domestic delivery takes 3-5 business days with live shipment tracking.',
+  },
+];
+
 export function ProductTabs({
   productId,
   totalReviews = 0,
@@ -29,6 +48,7 @@ export function ProductTabs({
   detailsText = 'Experience unmatched comfort and style with our precision-tailored garments.',
 }: ProductTabsProps) {
   const [activeTab, setActiveTab] = useState<TabType>('reviews');
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
   const resolvedReviews: ReviewWithUserData[] = initialReviews ?? reviews;
 
@@ -82,7 +102,7 @@ export function ProductTabs({
             >
               {tab.label}
               {isActive && (
-                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-black dark:bg-white rounded-full transition-all" />
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-black dark:bg-white rounded-full transition-all duration-300 animate-in fade-in zoom-in-95" />
               )}
             </button>
           );
@@ -97,7 +117,7 @@ export function ProductTabs({
             role="tabpanel"
             id="panel-details"
             aria-labelledby="tab-details"
-            className="max-w-[800px] text-black/70 dark:text-zinc-300 font-satoshi text-sm sm:text-base leading-relaxed space-y-4 animate-in fade-in duration-200"
+            className="max-w-[800px] text-black/70 dark:text-zinc-300 font-satoshi text-sm sm:text-base leading-relaxed space-y-4 animate-in fade-in slide-in-from-top-1 duration-200"
           >
             <h3 className="font-bold text-base sm:text-lg text-black dark:text-white">
               Product Overview
@@ -118,7 +138,7 @@ export function ProductTabs({
             role="tabpanel"
             id="panel-reviews"
             aria-labelledby="tab-reviews"
-            className="w-full animate-in fade-in duration-200"
+            className="w-full animate-in fade-in slide-in-from-top-1 duration-200"
           >
             <ProductReviews
               productId={productId}
@@ -128,26 +148,42 @@ export function ProductTabs({
           </div>
         )}
 
-        {/* FAQs Panel */}
+        {/* FAQs Accordion Panel */}
         {activeTab === 'faqs' && (
           <div
             role="tabpanel"
             id="panel-faqs"
             aria-labelledby="tab-faqs"
-            className="max-w-[800px] space-y-4 font-satoshi text-xs sm:text-sm animate-in fade-in duration-200"
+            className="max-w-[800px] space-y-3 font-satoshi text-xs sm:text-sm animate-in fade-in slide-in-from-top-1 duration-200"
           >
-            <div className="p-5 rounded-[16px] bg-[#F0F0F0]/60 dark:bg-zinc-900 border border-black/5 dark:border-zinc-800 space-y-1.5">
-              <h4 className="font-bold text-black dark:text-white">What is the return policy?</h4>
-              <p className="text-black/70 dark:text-zinc-400">
-                We offer a 30-day hassle-free return policy. Items must be unworn with original tags attached.
-              </p>
-            </div>
-            <div className="p-5 rounded-[16px] bg-[#F0F0F0]/60 dark:bg-zinc-900 border border-black/5 dark:border-zinc-800 space-y-1.5">
-              <h4 className="font-bold text-black dark:text-white">How do I choose my size?</h4>
-              <p className="text-black/70 dark:text-zinc-400">
-                Our shirts and hoodies fit true to size. For an oversized fit, we recommend ordering one size up.
-              </p>
-            </div>
+            {PRODUCT_FAQS.map((faq, idx) => {
+              const isOpen = openFaqIndex === idx;
+              return (
+                <div
+                  key={idx}
+                  className="rounded-[18px] bg-[#F0F0F0]/60 dark:bg-zinc-900 border border-black/5 dark:border-zinc-800 overflow-hidden transition-all duration-200 hover:border-black/20 dark:hover:border-zinc-700"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
+                    className="w-full p-4 sm:p-5 flex items-center justify-between text-left font-bold text-black dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    <span className="pr-4">{faq.q}</span>
+                    <ChevronDown
+                      size={18}
+                      className={`shrink-0 text-black/60 dark:text-zinc-400 transition-transform duration-300 ease-out ${
+                        isOpen ? 'rotate-180 text-black dark:text-white' : 'rotate-0'
+                      }`}
+                    />
+                  </button>
+                  {isOpen && (
+                    <div className="px-4 sm:px-5 pb-5 pt-1 text-black/70 dark:text-zinc-400 text-xs sm:text-sm leading-relaxed border-t border-black/5 dark:border-zinc-800/60 animate-in fade-in slide-in-from-top-2 duration-200">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

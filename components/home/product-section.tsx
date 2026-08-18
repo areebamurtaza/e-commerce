@@ -1,7 +1,7 @@
-// components/home/product-section.tsx
 import Link from 'next/link';
 import { Product } from '@/types/product';
 import { ProductCard } from '@/components/home/product-card';
+import { ScrollReveal } from '@/components/shared/scroll-reveal';
 
 interface ProductSectionProps {
   id?: string;
@@ -28,12 +28,14 @@ export function ProductSection({
     >
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px]">
         {/* Section Heading */}
-        <h2
-          id={headingId}
-          className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[38px] sm:leading-[48px] xl:leading-[58px] text-black dark:text-white text-center uppercase tracking-tight mb-8 sm:mb-12 xl:mb-14"
-        >
-          {title}
-        </h2>
+        <ScrollReveal direction="up" delay={0} distance={20}>
+          <h2
+            id={headingId}
+            className="font-integral font-bold text-[32px] sm:text-[40px] xl:text-[48px] leading-[38px] sm:leading-[48px] xl:leading-[58px] text-black dark:text-white text-center uppercase tracking-tight mb-8 sm:mb-12 xl:mb-14"
+          >
+            {title}
+          </h2>
+        </ScrollReveal>
 
         {/* Product Grid */}
         {products.length > 0 ? (
@@ -43,7 +45,9 @@ export function ProductSection({
                 key={product.id}
                 className={index >= 2 ? 'hidden md:block w-full' : 'w-full'}
               >
-                <ProductCard product={product} />
+                <ScrollReveal direction="up" delay={index * 130} distance={30}>
+                  <ProductCard product={product} />
+                </ScrollReveal>
               </div>
             ))}
           </div>
@@ -55,14 +59,16 @@ export function ProductSection({
 
         {/* View All CTA Button */}
         {products.length > 0 && viewAllHref && (
-          <div className="flex justify-center mt-6 sm:mt-12">
-            <Link
-              href={viewAllHref}
-              className="w-full sm:w-[218px] h-[46px] sm:h-[52px] border border-black/10 dark:border-zinc-800 rounded-[62px] font-satoshi font-medium text-[14px] sm:text-[16px] leading-[22px] text-black dark:text-white bg-white dark:bg-black hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black flex items-center justify-center transition-all duration-200 active:scale-95 shadow-xs"
-            >
-              View All
-            </Link>
-          </div>
+          <ScrollReveal direction="up" delay={200} distance={15}>
+            <div className="flex justify-center mt-6 sm:mt-12">
+              <Link
+                href={viewAllHref}
+                className="w-full sm:w-[218px] h-[46px] sm:h-[52px] border border-black/10 dark:border-zinc-800 rounded-[62px] font-satoshi font-medium text-[14px] sm:text-[16px] leading-[22px] text-black dark:text-white bg-white dark:bg-black hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black flex items-center justify-center transition-all duration-200 active:scale-95 shadow-xs"
+              >
+                View All
+              </Link>
+            </div>
+          </ScrollReveal>
         )}
 
         {/* Section Divider */}

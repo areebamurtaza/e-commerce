@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { ScrollReveal } from '@/components/shared/scroll-reveal';
 
 export interface DressStyleItem {
   id: string;
@@ -201,30 +202,32 @@ export function DressStyleGrid() {
     <section className="w-full bg-white dark:bg-black py-10 sm:py-16 xl:py-20 transition-colors duration-200">
       <div className="max-w-[1440px] mx-auto px-4 md:px-8 xl:px-[100px]">
         {/* Main Shell Container */}
-        <div className="bg-[#F0F0F0] dark:bg-zinc-900/60 rounded-[20px] sm:rounded-[40px] px-4 sm:px-12 xl:px-[64px] pt-8 sm:pt-[70px] pb-8 sm:pb-[76px] border border-black/5 dark:border-zinc-800">
-          
-          <h2 className="font-integral font-bold text-[32px] sm:text-[44px] lg:text-[48px] leading-[1.1] text-black dark:text-white text-center uppercase tracking-tight mb-7 sm:mb-[56px] xl:mb-[64px]">
-            BROWSE BY DRESS STYLE
-          </h2>
+        <ScrollReveal direction="up" delay={50} distance={24}>
+          <div className="bg-[#F0F0F0] dark:bg-zinc-900/60 rounded-[20px] sm:rounded-[40px] px-4 sm:px-12 xl:px-[64px] pt-8 sm:pt-[70px] pb-8 sm:pb-[76px] border border-black/5 dark:border-zinc-800">
+            
+            <h2 className="font-integral font-bold text-[32px] sm:text-[44px] lg:text-[48px] leading-[1.1] text-black dark:text-white text-center uppercase tracking-tight mb-7 sm:mb-[56px] xl:mb-[64px]">
+              BROWSE BY DRESS STYLE
+            </h2>
 
-          {/* Asymmetric Proportional Grid matching Figma: 407fr / 684fr */}
-          <div className="flex flex-col gap-4 sm:gap-5 xl:gap-[20px]">
-            {/* Row 1: Casual (407fr) & Formal (684fr) */}
-            <div className="grid grid-cols-1 lg:grid-cols-[407fr_684fr] gap-4 sm:gap-5 xl:gap-[20px]">
-              {DRESS_STYLES_DATA.row1.map((item) => (
-                <DressStyleCard key={item.id} item={item} />
-              ))}
+            {/* Asymmetric Proportional Grid matching Figma: 407fr / 684fr */}
+            <div className="flex flex-col gap-4 sm:gap-5 xl:gap-[20px]">
+              {/* Row 1: Casual (407fr) & Formal (684fr) */}
+              <div className="grid grid-cols-1 lg:grid-cols-[407fr_684fr] gap-4 sm:gap-5 xl:gap-[20px]">
+                {DRESS_STYLES_DATA.row1.map((item) => (
+                  <DressStyleCard key={item.id} item={item} />
+                ))}
+              </div>
+
+              {/* Row 2: Party (684fr) & Gym (407fr) */}
+              <div className="grid grid-cols-1 lg:grid-cols-[684fr_407fr] gap-4 sm:gap-5 xl:gap-[20px]">
+                {DRESS_STYLES_DATA.row2.map((item) => (
+                  <DressStyleCard key={item.id} item={item} />
+                ))}
+              </div>
             </div>
 
-            {/* Row 2: Party (684fr) & Gym (407fr) */}
-            <div className="grid grid-cols-1 lg:grid-cols-[684fr_407fr] gap-4 sm:gap-5 xl:gap-[20px]">
-              {DRESS_STYLES_DATA.row2.map((item) => (
-                <DressStyleCard key={item.id} item={item} />
-              ))}
-            </div>
           </div>
-
-        </div>
+        </ScrollReveal>
       </div>
     </section>
   );

@@ -65,6 +65,8 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
   const maxPrice = resolvedSearchParams.maxPrice ? Number(resolvedSearchParams.maxPrice) : undefined;
   const sortQuery = resolvedSearchParams.sort || 'newest';
   const currentPage = Math.max(1, Number(resolvedSearchParams.page) || 1);
+  const isDiscountOnly =
+    resolvedSearchParams.discount === 'true' || resolvedSearchParams.discount === '1';
 
   // 1. Map DressStyle Enum safely
   let dressStyleEnum: DressStyle | undefined = undefined;
@@ -88,6 +90,7 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
     category: categoryQuery || undefined,
     gender: genderQuery || undefined,
     dressStyle: dressStyleEnum,
+    hasDiscount: isDiscountOnly || undefined,
     minPrice,
     maxPrice,
     sort: mappedSort,
@@ -101,7 +104,9 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
 
   // 4. Derive Page Heading
   let pageTitle = 'All Products';
-  if (genderQuery && categoryQuery) {
+  if (isDiscountOnly) {
+    pageTitle = 'On Sale / Deals';
+  } else if (genderQuery && categoryQuery) {
     const gFormatted = genderQuery.charAt(0).toUpperCase() + genderQuery.slice(1).toLowerCase();
     pageTitle = `${gFormatted}'s ${categoryQuery.charAt(0).toUpperCase() + categoryQuery.slice(1)}`;
   } else if (genderQuery) {

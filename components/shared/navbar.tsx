@@ -148,21 +148,21 @@ export function Navbar() {
 
           <Link
             href="/shop?discount=true"
-            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
+            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 hover:-translate-y-0.5 transition-all duration-200"
           >
             On Sale
           </Link>
 
           <Link
             href="/#new-arrivals"
-            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
+            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 hover:-translate-y-0.5 transition-all duration-200"
           >
             New Arrivals
           </Link>
 
           <Link
             href="/#brands"
-            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 transition-colors"
+            className="font-satoshi font-normal text-[16px] text-black dark:text-white hover:text-black/70 dark:hover:text-zinc-300 hover:-translate-y-0.5 transition-all duration-200"
           >
             Brands
           </Link>
